@@ -1,0 +1,20 @@
+# Python bytecode & virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# Runtime SQLite database (auto-generated & seeded on startup)
+app/vyaparvoice.db
+*.db-journal
+
+# Local environment secrets
+.env
+
+# OS & IDE files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

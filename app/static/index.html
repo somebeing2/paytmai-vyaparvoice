@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PaytmAI VyaparVoice · Merchant Growth & Retention Autopilot</title>
+  <style>
+    :root {
+      --paytm-navy: #002970;
+      --paytm-navy-dark: #001845;
+      --paytm-cyan: #00baf2;
+      --paytm-cyan-soft: #e0f7fe;
+      --bg: #f3f7fb;
+      --card: #ffffff;
+      --ink: #0f172a;
+      --muted: #52627a;
+      --border: #dde6f0;
+      --emerald: #059669;
+      --emerald-soft: #ecfdf5;
+      --amber: #d97706;
+      --amber-soft: #fffbeb;
+      --indigo: #4f46e5;
+      --indigo-soft: #eef2ff;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.45;
+    }
+    /* Top Navbar */
+    .topbar {
+      background: linear-gradient(95deg, var(--paytm-navy-dark) 0%, var(--paytm-navy) 65%, #004299 100%);
+      color: #fff;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      border-bottom: 3px solid var(--paytm-cyan);
+      box-shadow: 0 4px 18px rgba(0, 24, 69, 0.16);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand-logo {
+      background: #fff;
+      color: var(--paytm-navy);
+      font-weight: 900;
+      font-size: 16px;
+      letter-spacing: -0.5px;
+      padding: 6px 11px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+    .brand-logo span { color: var(--paytm-cyan); }
+    .brand-title h1 {
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: -0.2px;
+    }
+    .brand-title p {
+      font-size: 12px;
+      color: #bae6fd;
+    }
+    .top-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .pill {
+      background: rgba(255,255,255,0.12);
+      border: 1px solid rgba(255,255,255,0.22);
+      color: #fff;
+      font-size: 12px;
+      padding: 5px 11px;
+      border-radius: 999px;
+      font-weight: 600;
+    }
+    .btn-reset {
+      background: rgba(255,255,255,0.14);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.3);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: 0.15s;
+    }
+    .btn-reset:hover { background: rgba(255,255,255,0.25); }
+
+    /* Main Grid */
+    .container {
+      max-width: 1360px;
+      margin: 20px auto;
+      padding: 0 18px 36px;
+      display: grid;
+      grid-template-columns: 375px 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+    @media (max-width: 1024px) {
+      .container { grid-template-columns: 1fr; }
+    }
+
+    /* AI Soundbox Hardware Simulator Card */
+    .soundbox-shell {
+      background: linear-gradient(165deg, #002970 0%, #001a49 100%);
+      border-radius: 22px;
+      padding: 20px;
+      color: #fff;
+      box-shadow: 0 14px 32px rgba(0, 41, 112, 0.25);
+      border: 2px solid rgba(0, 186, 242, 0.45);
+      position: sticky;
+      top: 16px;
+    }
+    .sb-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+    .sb-badge {
+      background: rgba(0, 186, 242, 0.2);
+      border: 1px solid var(--paytm-cyan);
+      color: #7dd3fc;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 9px;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .sb-led {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: #a7f3d0;
+    }
+    .led-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 10px #10b981;
+    }
+    .led-dot.speaking {
+      background: var(--paytm-cyan);
+      box-shadow: 0 0 16px var(--paytm-cyan);
+      animation: pulse 0.8s infinite alternate;
+    }
+    @keyframes pulse {
+      from { transform: scale(1); opacity: 0.8; }
+      to { transform: scale(1.45); opacity: 1; }
+    }
+
+    /* Speaker Grille & LCD */
+    .sb-lcd {
+      background: #071327;
+      border: 1.5px solid #1e3a5f;
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin-bottom: 14px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .sb-lcd-top {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #38bdf8;
+      margin-bottom: 4px;
+    }
+    .sb-lcd-main {
+      font-size: 18px;
+      font-weight: 800;
+      color: #34d399;
+      letter-spacing: 0.3px;
+    }
+    .sb-lcd-sub {
+      font-size: 11px;
+      color: #94a3b8;
+      margin-top: 3px;
+    }
+
+    .lang-tabs {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+    .lang-btn {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.18);
+      color: #e2e8f0;
+      padding: 7px 6px;
+      border-radius: 9px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: 0.15s;
+    }
+    .lang-btn.active {
+      background: var(--paytm-cyan);
+      color: #001845;
+      border-color: var(--paytm-cyan);
+    }
+
+    .script-box {
+      background: rgba(255,255,255,0.07);
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 12px;
+      border: 1px solid rgba(255,255,255,0.12);
+    }
+    .script-headline {
+      font-size: 11px;
+      font-weight: 700;
+      color: #7dd3fc;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+    }
+    .script-text {
+      font-size: 13.5px;
+      line-height: 1.5;
+      color: #f8fafc;
+      margin-bottom: 8px;
+    }
+    .script-roman {
+      font-size: 11.5px;
+      color: #cbd5e1;
+      font-style: italic;
+      border-top: 1px dashed rgba(255,255,255,0.15);
+      padding-top: 7px;
+    }
+
+    .sb-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .btn-cyan {
+      background: var(--paytm-cyan);
+      color: #001845;
+      border: none;
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-weight: 800;
+      font-size: 12.5px;
+      cursor: pointer;
+      transition: 0.15s;
+    }
+    .btn-cyan:hover { filter: brightness(1.07); }
+    .btn-voice {
+      background: #10b981;
+      color: #022c22;
+      border: none;
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-weight: 800;
+      font-size: 12.5px;
+      cursor: pointer;
+      transition: 0.15s;
+    }
+    .btn-voice:hover { filter: brightness(1.07); }
+
+    .quick-voice-chips {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .quick-label {
+      font-size: 11px;
+      color: #93c5fd;
+      font-weight: 600;
+    }
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .v-chip {
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #f1f5f9;
+      font-size: 11.5px;
+      padding: 5px 9px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: 0.15s;
+    }
+    .v-chip:hover {
+      background: rgba(0, 186, 242, 0.28);
+      border-color: var(--paytm-cyan);
+    }
+    .voice-reply {
+      margin-top: 10px;
+      background: rgba(16, 185, 129, 0.16);
+      border: 1px solid rgba(16, 185, 129, 0.45);
+      border-radius: 10px;
+      padding: 9px 11px;
+      font-size: 12px;
+      color: #ecfdf5;
+      display: none;
+    }
+
+    /* Right Workspace */
+    .kpi-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    @media (max-width: 780px) {
+      .kpi-strip { grid-template-columns: repeat(2, 1fr); }
+    }
+    .kpi-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px 16px;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
+    }
+    .kpi-card.highlight {
+      background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+      border-color: #6ee7b7;
+    }
+    .kpi-label {
+      font-size: 11.5px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+    .kpi-val {
+      font-size: 24px;
+      font-weight: 900;
+      color: var(--paytm-navy);
+      margin-top: 4px;
+    }
+    .kpi-card.highlight .kpi-val { color: #065f46; }
+    .kpi-sub {
+      font-size: 11.5px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    /* Navigation Tabs */
+    .nav-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      border-bottom: 2px solid var(--border);
+      padding-bottom: 8px;
+      flex-wrap: wrap;
+    }
+    .tab-btn {
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 9px 16px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: 0.15s;
+    }
+    .tab-btn.active {
+      background: var(--paytm-navy);
+      color: #fff;
+      border-color: var(--paytm-navy);
+    }
+
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* Campaign Cards */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 18px 20px;
+      margin-bottom: 16px;
+      box-shadow: 0 3px 10px rgba(15, 23, 42, 0.04);
+    }
+    .card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .pillar-tag {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: var(--paytm-cyan-soft);
+      color: var(--paytm-navy);
+      margin-bottom: 5px;
+    }
+    .card-title {
+      font-size: 17px;
+      font-weight: 800;
+      color: var(--ink);
+    }
+    .status-badge {
+      padding: 5px 11px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      font-weight: 800;
+    }
+    .status-PENDING_APPROVAL, .status-PENDING { background: var(--amber-soft); color: var(--amber); border: 1px solid #fcd34d; }
+    .status-LIVE_DISPATCHED, .status-EXECUTED { background: var(--paytm-cyan-soft); color: #0369a1; border: 1px solid #7dd3fc; }
+    .status-SIMULATED_48H { background: var(--emerald-soft); color: var(--emerald); border: 1px solid #6ee7b7; }
+
+    .cmp-metrics {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 14px;
+    }
+    @media (max-width: 680px) {
+      .cmp-metrics { grid-template-columns: repeat(2, 1fr); }
+    }
+    .cm-item span { display: block; font-size: 11px; color: var(--muted); font-weight: 600; }
+    .cm-item strong { font-size: 15px; color: var(--ink); font-weight: 800; }
+
+    /* Guardrails Grid */
+    .guardrails-box {
+      background: #f8fafc;
+      border: 1px dashed #cbd5e1;
+      border-radius: 12px;
+      padding: 11px 14px;
+      margin-bottom: 14px;
+    }
+    .gr-title {
+      font-size: 11.5px;
+      font-weight: 800;
+      color: var(--paytm-navy);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .gr-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 7px;
+    }
+    .gr-chip {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 6px 9px;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .gr-pass { color: var(--emerald); font-weight: 900; }
+
+    .action-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .btn-primary {
+      background: var(--paytm-navy);
+      color: #fff;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 10px;
+      font-weight: 800;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .btn-primary:hover { background: #003999; }
+    .btn-sim {
+      background: var(--emerald);
+      color: #fff;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 10px;
+      font-weight: 800;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .btn-sim:hover { filter: brightness(1.06); }
+
+    /* Holdout Proof Box */
+    .proof-box {
+      margin-top: 14px;
+      background: linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%);
+      border: 1.5px solid #34d399;
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+    .proof-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-top: 8px;
+    }
+    @media (max-width: 680px) {
+      .proof-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    /* Segments & Hourly Chart */
+    .seg-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+    @media (max-width: 680px) {
+      .seg-grid { grid-template-columns: 1fr; }
+    }
+    .seg-card {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 13px 15px;
+      background: #fcfdff;
+    }
+    .bars-wrap {
+      display: flex;
+      align-items: flex-end;
+      gap: 6px;
+      height: 155px;
+      padding: 16px 8px 4px;
+      border-bottom: 1px solid var(--border);
+    }
+    .bar-col {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      height: 100%;
+      justify-content: flex-end;
+    }
+    .bar-fill {
+      width: 100%;
+      max-width: 34px;
+      background: var(--paytm-navy);
+      border-radius: 6px 6px 0 0;
+      transition: height 0.3s;
+    }
+    .bar-fill.dead {
+      background: #f59e0b;
+      border: 1px dashed #b45309;
+    }
+    .bar-lbl { font-size: 10.5px; color: var(--muted); margin-top: 5px; font-weight: 600; }
+    .bar-num { font-size: 10px; color: var(--ink); font-weight: 700; margin-bottom: 3px; }
+
+    /* Table */
+    table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); }
+    th { font-size: 11px; text-transform: uppercase; color: var(--muted); background: #f8fafc; }
+    .sim-row { background: #ecfdf5; font-weight: 600; }
+  </style>
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-logo">Paytm<span>AI</span></div>
+      <div class="brand-title">
+        <h1>VyaparVoice · Merchant Growth & Retention Autopilot</h1>
+        <p id="storeSubtitle">Sri Krishna Darshini & Provisions · Indiranagar, Bengaluru</p>
+      </div>
+    </div>
+    <div class="top-meta">
+      <span class="pill">Track 1: Merchant Growth AI</span>
+      <span class="pill">Team SemiTechnical · Kevin Joseph</span>
+      <button class="btn-reset" onclick="resetDemo()">↺ Reset Demo State</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Left Column: Paytm AI Soundbox Simulator -->
+    <aside class="soundbox-shell">
+      <div class="sb-header">
+        <span class="sb-badge">Paytm AI Soundbox 4G</span>
+        <div class="sb-led">
+          <span id="ledDot" class="led-dot"></span>
+          <span id="ledText">Ready · Online</span>
+        </div>
+      </div>
+
+      <div class="sb-lcd">
+        <div class="sb-lcd-top">
+          <span>PYTM-BLR-88412</span>
+          <span id="lcdClock">8:30 PM IST</span>
+        </div>
+        <div class="sb-lcd-main" id="lcdMain">₹25 Win-Back Ready</div>
+        <div class="sb-lcd-sub" id="lcdSub">40 Regulars Eligible · Cap ₹300</div>
+      </div>
+
+      <div class="lang-tabs">
+        <button class="lang-btn active" id="lang-en" onclick="selectLang('en')">English</button>
+        <button class="lang-btn" id="lang-kn" onclick="selectLang('kn')">ಕನ್ನಡ (KN)</button>
+        <button class="lang-btn" id="lang-hi" onclick="selectLang('hi')">हिंदी (HI)</button>
+      </div>
+
+      <div class="script-box">
+        <div class="script-headline" id="briefHeadline">8:30 PM Closing Voice Briefing</div>
+        <div class="script-text" id="briefScript">Loading evening store briefing...</div>
+        <div class="script-roman" id="briefRoman"></div>
+      </div>
+
+      <div class="sb-actions">
+        <button class="btn-cyan" onclick="speakBriefing()">🔊 Play Soundbox</button>
+        <button class="btn-voice" onclick="startMicCommand()">◉ Speak Reply</button>
+      </div>
+
+      <div class="quick-voice-chips">
+        <div class="quick-label">Or click a simulated merchant voice reply:</div>
+        <div class="chip-row">
+          <button class="v-chip" onclick="sendVoiceText('Haudu, approve win-back campaign')">"Haudu / Haan, Approve!"</button>
+          <button class="v-chip" onclick="sendVoiceText('Fast forward 48 hours ROI result')">"Show 48h Lift Result"</button>
+          <button class="v-chip" onclick="sendVoiceText('Approve supplier milk reorder')">"Reorder +18L Milk"</button>
+          <button class="v-chip" onclick="sendVoiceText('How were my sales today?')">"30-Day Sales Summary"</button>
+        </div>
+      </div>
+
+      <div id="voiceReplyBox" class="voice-reply"></div>
+    </aside>
+
+    <!-- Right Column: Merchant Growth Copilot Workspace -->
+    <section>
+      <div class="kpi-strip">
+        <div class="kpi-card">
+          <div class="kpi-label">30-Day Paytm UPI GMV</div>
+          <div class="kpi-val" id="kpiGmv">₹0</div>
+          <div class="kpi-sub" id="kpiTxns">0 UPI scans</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Unique Store Payers</div>
+          <div class="kpi-val" id="kpiCusts">240</div>
+          <div class="kpi-sub" id="kpiRepeat">0% repeat cohort</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Avg UPI Basket</div>
+          <div class="kpi-val" id="kpiBasket">₹0</div>
+          <div class="kpi-sub">Zero manual Khata entry</div>
+        </div>
+        <div class="kpi-card highlight">
+          <div class="kpi-label">Verified Net ₹ Lift (Holdout)</div>
+          <div class="kpi-val" id="kpiLift">+₹0</div>
+          <div class="kpi-sub">Causal 80/20 attribution</div>
+        </div>
+      </div>
+
+      <div class="nav-tabs">
+        <button class="tab-btn active" onclick="switchTab('growth', this)">▸ 1. Grow Business (Win-Back & Dead-Hour)</button>
+        <button class="tab-btn" onclick="switchTab('ops', this)">▸ 2. Manage Ops & Serve Customers</button>
+        <button class="tab-btn" onclick="switchTab('ledger', this)">▸ 3. Live SQLite UPI Ledger & Audit</button>
+      </div>
+
+      <!-- TAB 1: GROW BUSINESS -->
+      <div id="panel-growth" class="panel active">
+        <div id="campaignsContainer"></div>
+
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <span class="pillar-tag">Zero-Entry Paytm UPI Graph</span>
+              <h3 class="card-title">Live RFM Customer Cohorts (Computed from 2,100+ UPI Scans)</h3>
+            </div>
+          </div>
+          <div id="segmentsContainer" class="seg-grid"></div>
+        </div>
+      </div>
+
+      <!-- TAB 2: MANAGE OPS & SERVE CUSTOMERS -->
+      <div id="panel-ops" class="panel">
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <span class="pillar-tag">Hourly Footfall Intelligence</span>
+              <h3 class="card-title">30-Day Store Velocity & 3:00–5:00 PM Dead-Hour Trough (Amber)</h3>
+            </div>
+          </div>
+          <div id="hourlyChart" class="bars-wrap"></div>
+        </div>
+
+        <div id="opsContainer"></div>
+      </div>
+
+      <!-- TAB 3: LIVE LEDGER & AUDIT -->
+      <div id="panel-ledger" class="panel">
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <span class="pillar-tag">Deterministic Governance</span>
+              <h3 class="card-title">Immutable Guardrail & Attribution Audit Trail</h3>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr><th>Timestamp</th><th>Actor</th><th>Event</th><th>Details</th></tr>
+            </thead>
+            <tbody id="auditTableBody"></tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <span class="pillar-tag">Paytm QR Transaction Stream</span>
+              <h3 class="card-title">Recent & Simulated Return UPI Transactions</h3>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr><th>Txn ID</th><th>Customer</th><th>UPI Handle</th><th>Category</th><th>Amount</th><th>Attribution</th></tr>
+            </thead>
+            <tbody id="txnTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    let currentLang = 'en';
+    let currentBriefing = null;
+    let overviewData = null;
+
+    function fmtInr(n) {
+      return '₹' + Number(n || 0).toLocaleString('en-IN');
+    }
+
+    function switchTab(name, btn) {
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById('panel-' + name).classList.add('active');
+      btn.classList.add('active');
+    }
+
+    async function loadBriefing(lang) {
+      const res = await fetch(`/api/briefing?lang=${encodeURIComponent(lang)}`);
+      currentBriefing = await res.json();
+      document.getElementById('briefHeadline').textContent = currentBriefing.headline;
+      document.getElementById('briefScript').textContent = currentBriefing.script;
+      document.getElementById('briefRoman').textContent = currentBriefing.romanized;
+    }
+
+    async function selectLang(lang) {
+      currentLang = lang;
+      ['en', 'kn', 'hi'].forEach(l => {
+        document.getElementById('lang-' + l).classList.toggle('active', l === lang);
+      });
+      await loadBriefing(lang);
+    }
+
+    function speakText(text, langCode) {
+      if (!('speechSynthesis' in window)) return;
+      window.speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = langCode || 'en-IN';
+      utter.rate = 0.98;
+      const dot = document.getElementById('ledDot');
+      const ledTxt = document.getElementById('ledText');
+      utter.onstart = () => {
+        dot.classList.add('speaking');
+        ledTxt.textContent = 'Speaking via Soundbox...';
+      };
+      utter.onend = () => {
+        dot.classList.remove('speaking');
+        ledTxt.textContent = 'Ready · Online';
+      };
+      utter.onerror = () => {
+        dot.classList.remove('speaking');
+        ledTxt.textContent = 'Ready · Online';
+      };
+      window.speechSynthesis.speak(utter);
+    }
+
+    function speakBriefing() {
+      if (!currentBriefing) return;
+      // If browser lacks native Kannada voice, fallback gracefully so audio always plays clearly
+      const voices = ('speechSynthesis' in window) ? window.speechSynthesis.getVoices() : [];
+      const hasLangVoice = voices.some(v => v.lang && v.lang.toLowerCase().startsWith(currentLang));
+      const textToRead = (currentLang === 'kn' && !hasLangVoice)
+        ? currentBriefing.romanized
+        : currentBriefing.script;
+      speakText(textToRead, hasLangVoice ? currentBriefing.lang_code : 'en-IN');
+    }
+
+    async function sendVoiceText(utterance) {
+      const res = await fetch('/api/voice-command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ utterance, lang: currentLang })
+      });
+      const data = await res.json();
+      const box = document.getElementById('voiceReplyBox');
+      box.style.display = 'block';
+      box.innerHTML = `<strong>🎤 Heard:</strong> "${data.utterance}"<br/><strong>🔊 Soundbox:</strong> ${data.reply}`;
+      speakText(data.reply, 'en-IN');
+      await loadOverview();
+    }
+
+    function startMicCommand() {
+      const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRec) {
+        sendVoiceText('Haan, approve win-back campaign');
+        return;
+      }
+      const rec = new SpeechRec();
+      rec.lang = currentLang === 'hi' ? 'hi-IN' : (currentLang === 'kn' ? 'kn-IN' : 'en-IN');
+      document.getElementById('ledDot').classList.add('speaking');
+      document.getElementById('ledText').textContent = 'Listening... Speak now';
+      rec.onresult = (ev) => {
+        const transcript = ev.results[0][0].transcript;
+        sendVoiceText(transcript);
+      };
+      rec.onerror = () => {
+        document.getElementById('ledDot').classList.remove('speaking');
+        document.getElementById('ledText').textContent = 'Mic unavailable · Sent sample approval';
+        sendVoiceText('Haan, approve win-back campaign');
+      };
+      rec.start();
+    }
+
+    async function approveCmp(id) {
+      await fetch(`/api/campaigns/${id}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ via: '1-Tap Soundbox' })
+      });
+      document.getElementById('lcdMain').textContent = 'Campaign Dispatched!';
+      document.getElementById('lcdSub').textContent = 'Hard Budget Ceiling Armed';
+      await loadOverview();
+    }
+
+    async function simulateCmp(id) {
+      const res = await fetch(`/api/campaigns/${id}/simulate`, { method: 'POST' });
+      const data = await res.json();
+      if (data.campaign) {
+        document.getElementById('lcdMain').textContent = `+₹${data.campaign.incremental_sales} Net Lift!`;
+        document.getElementById('lcdSub').textContent = `${data.campaign.roi_multiple}x Verified ROI (48h)`;
+      }
+      await loadOverview();
+    }
+
+    async function executeOps(id) {
+      await fetch(`/api/ops/${id}/execute`, { method: 'POST' });
+      document.getElementById('lcdMain').textContent = 'Ops Action Executed';
+      document.getElementById('lcdSub').textContent = id + ' · Confirmed';
+      await loadOverview();
+    }
+
+    async function resetDemo() {
+      await fetch('/api/reset', { method: 'POST' });
+      document.getElementById('voiceReplyBox').style.display = 'none';
+      document.getElementById('lcdMain').textContent = '₹25 Win-Back Ready';
+      document.getElementById('lcdSub').textContent = '40 Regulars Eligible · Cap ₹300';
+      await loadOverview();
+    }
+
+    async function loadOverview() {
+      const res = await fetch('/api/overview');
+      overviewData = await res.json();
+      const k = overviewData.kpis;
+
+      document.getElementById('kpiGmv').textContent = fmtInr(k.gmv_30d);
+      document.getElementById('kpiTxns').textContent = `${k.txn_count_30d.toLocaleString()} scans (30d) · ${k.total_60d_txns.toLocaleString()} total`;
+      document.getElementById('kpiCusts').textContent = k.total_customers;
+      document.getElementById('kpiRepeat').textContent = `${k.repeat_rate_pct}% repeat customer base`;
+      document.getElementById('kpiBasket').textContent = fmtInr(k.avg_ticket);
+      document.getElementById('kpiLift').textContent = '+' + fmtInr(k.verified_incremental_inr);
+
+      // Render Campaigns
+      const cmpHtml = overviewData.campaigns.map(c => {
+        const grHtml = c.guardrails.map(g => `
+          <div class="gr-chip">
+            <span class="gr-pass">✔</span>
+            <div><strong>${g.rule}:</strong> ${g.metric}</div>
+          </div>
+        `).join('');
+
+        let proofHtml = '';
+        if (c.status === 'SIMULATED_48H') {
+          const tRate = ((c.treatment_returned / c.treatment_count) * 100).toFixed(1);
+          const hRate = ((c.holdout_returned / c.holdout_count) * 100).toFixed(1);
+          proofHtml = `
+            <div class="proof-box">
+              <strong style="color:#065f46;font-size:13.5px;">✅ 48-Hour Holdout Attribution Proof (Real Causal Lift — Not Vanity Views!)</strong>
+              <div class="proof-grid">
+                <div class="cm-item"><span>Treatment Return Rate</span><strong>${c.treatment_returned}/${c.treatment_count} (${tRate}%)</strong></div>
+                <div class="cm-item"><span>Silent Holdout Return</span><strong>${c.holdout_returned}/${c.holdout_count} (${hRate}%)</strong></div>
+                <div class="cm-item"><span>Cashback Spent (Capped)</span><strong>${fmtInr(c.budget_spent)} / ${fmtInr(c.max_budget)}</strong></div>
+                <div class="cm-item"><span>Net Incremental Sales</span><strong style="color:#059669;">+${fmtInr(c.incremental_sales)} (${c.roi_multiple}x ROI)</strong></div>
+              </div>
+            </div>
+          `;
+        }
+
+        return `
+          <div class="card">
+            <div class="card-head">
+              <div>
+                <span class="pillar-tag">${c.pillar}</span>
+                <h3 class="card-title">${c.title}</h3>
+              </div>
+              <span class="status-badge status-${c.status}">${c.status.replace('_', ' ')}</span>
+            </div>
+
+            <div class="cmp-metrics">
+              <div class="cm-item"><span>Detected → Policy-Eligible</span><strong>${c.detected_count} → ${c.eligible_count} Payers</strong></div>
+              <div class="cm-item"><span>UPI Offer Structure</span><strong>₹${c.offer_rupees} off ₹${c.min_bill}+ scan</strong></div>
+              <div class="cm-item"><span>Hard Liability Ceiling</span><strong>${fmtInr(c.max_budget)} Max</strong></div>
+              <div class="cm-item"><span>Experiment Split</span><strong>${c.treatment_count} Nudged / ${c.holdout_count} Control</strong></div>
+            </div>
+
+            <div class="guardrails-box">
+              <div class="gr-title">🛡️ Deterministic Policy & Safety Guardrail Engine (5/5 Passed)</div>
+              <div class="gr-list">${grHtml}</div>
+            </div>
+
+            <div class="action-row">
+              ${c.status === 'PENDING_APPROVAL' ? `<button class="btn-primary" onclick="approveCmp('${c.campaign_id}')">⚡ 1-Tap Merchant Approve</button>` : ''}
+              ${c.status !== 'SIMULATED_48H' ? `<button class="btn-sim" onclick="simulateCmp('${c.campaign_id}')">⏩ Fast-Forward 48h (Simulate UPI Scans & ROI)</button>` : ''}
+            </div>
+            ${proofHtml}
+          </div>
+        `;
+      }).join('');
+      document.getElementById('campaignsContainer').innerHTML = cmpHtml;
+
+      // Render Segments
+      document.getElementById('segmentsContainer').innerHTML = overviewData.segments.map(s => `
+        <div class="seg-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <strong style="font-size:14.5px;color:#002970;">${s.name}</strong>
+            <span class="pillar-tag" style="margin:0;">${s.customer_count} Payers (${s.eligible_count} Opt-In)</span>
+          </div>
+          <div style="font-size:12px;color:#52627a;margin-bottom:6px;">
+            Avg Visits: <strong>${s.avg_visits}x</strong> · Avg Last Seen: <strong>${s.avg_last_seen_days}d ago</strong> · Cohort GMV: <strong>${fmtInr(s.historical_gmv)}</strong>
+          </div>
+          <div style="font-size:12px;color:#0f172a;background:#f1f5f9;padding:6px 9px;border-radius:7px;">
+            💡 <strong>Copilot Strategy:</strong> ${s.action_hint}
+          </div>
+        </div>
+      `).join('');
+
+      // Render Hourly Chart
+      const maxTxns = Math.max(1, ...overviewData.hourly_series.map(h => h.txns));
+      document.getElementById('hourlyChart').innerHTML = overviewData.hourly_series.map(h => {
+        const pct = Math.max(8, Math.round((h.txns / maxTxns) * 105));
+        return `
+          <div class="bar-col" title="${h.label}: ${h.txns} scans (${fmtInr(h.revenue)})">
+            <span class="bar-num">${h.txns}</span>
+            <div class="bar-fill ${h.is_dead_hour ? 'dead' : ''}" style="height:${pct}px;"></div>
+            <span class="bar-lbl">${h.label}</span>
+          </div>
+        `;
+      }).join('');
+
+      // Render Ops Actions
+      document.getElementById('opsContainer').innerHTML = overviewData.ops_actions.map(o => `
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <span class="pillar-tag">${o.pillar}</span>
+              <h3 class="card-title">${o.title}</h3>
+            </div>
+            <span class="status-badge status-${o.status}">${o.status}</span>
+          </div>
+          <p style="font-size:13.5px;color:#334155;margin-bottom:10px;">${o.summary}</p>
+          <div style="background:#f8fafc;border-left:3px solid #00baf2;padding:9px 12px;font-size:12.5px;margin-bottom:12px;">
+            <strong>Recommended Copilot Action:</strong> ${o.recommended_step} (Est. Value Protected: <strong>${fmtInr(o.est_value_inr)}</strong>)
+          </div>
+          ${o.status === 'PENDING'
+            ? `<button class="btn-primary" onclick="executeOps('${o.action_id}')">⚡ Approve & Dispatch Action</button>`
+            : `<div style="color:#059669;font-weight:700;font-size:13px;">✔ Executed: ${o.executed_note}</div>`
+          }
+        </div>
+      `).join('');
+
+      // Render Audit Log
+      document.getElementById('auditTableBody').innerHTML = overviewData.audit_logs.map(a => `
+        <tr>
+          <td style="white-space:nowrap;color:#64748b;">${a.ts}</td>
+          <td><strong>${a.actor}</strong></td>
+          <td><span class="pillar-tag" style="margin:0;">${a.event_type}</span></td>
+          <td>${a.detail}</td>
+        </tr>
+      `).join('');
+
+      // Render Recent UPI Txns
+      document.getElementById('txnTableBody').innerHTML = overviewData.recent_txns.map(t => `
+        <tr class="${t.is_simulated ? 'sim-row' : ''}">
+          <td><code>${t.txn_id}</code></td>
+          <td>${t.name_hint}</td>
+          <td><code>${t.upi_handle}</code></td>
+          <td>${t.category}</td>
+          <td><strong>${fmtInr(t.amount)}</strong></td>
+          <td>${t.campaign_id ? `🎯 Redeemed (${t.campaign_id})` : `${t.days_ago}d ago · Organic`}</td>
+        </tr>
+      `).join('');
+    }
+
+    window.addEventListener('DOMContentLoaded', async () => {
+      await loadBriefing('en');
+      await loadOverview();
+    });
+  </script>
+</body>
+</html>

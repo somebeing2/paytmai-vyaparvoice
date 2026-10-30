@@ -10,6 +10,7 @@ test:
 	$(PYTHON) tests/test_stage1_unit.py
 	$(PYTHON) tests/test_e2e_stage1.py
 	$(PYTHON) tests/test_stage2.py
+	$(PYTHON) tests/test_groq_guardrails.py
 	$(PYTHON) tests/qa_battery.py
 
 ledger-set-balance:

@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .config import get_settings
 from .copy_lint import assert_valid_merchant_copy
 from .database import get_conn, get_db_lock
+from .providers.groq_qa import get_groq_qa
 from .providers.sarvam import SarvamProvider
 from .stats import (
     compute_bayesian_profit_posterior,
@@ -1685,12 +1686,10 @@ def handle_voice_command(utterance: str, lang: str = "en") -> Dict[str, Any]:
             f"(note: {cr['prob_exceeds_cap_pct']:.0f} percent chance more than {cr['max_funded_redemptions']} buyers return)."
         )
     else:
-        k = ov_ctx["kpis"]
-        reply = (
-            f"Over the last 30 days, Sri Krishna Darshini recorded {k['txn_count_30d']} Paytm QR payments worth "
-            f"{k['gmv_30d']} rupees with an average bill of {k['avg_ticket']} rupees. "
-            f"Your top action tonight is sending a 25 rupee return offer to 32 silent regular customers within a {winback['max_budget']} rupee limit."
-        )
+        facts = build_sanitized_store_facts(ov_ctx)
+        qa_res = get_groq_qa().answer_question(utterance, facts, lang=lang)
+        reply = qa_res.answer
+        action_taken = "GROQ_GROUNDED_QA" if qa_res.mode == "groq_grounded" else None
 
     assert_valid_merchant_copy(reply, check_sentence_length=True)
     return {
@@ -1698,3 +1697,127 @@ def handle_voice_command(utterance: str, lang: str = "en") -> Dict[str, Any]:
         "reply": reply,
         "action_taken": action_taken,
     }
+
+
+def build_sanitized_store_facts(ov_ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Build strictly aggregate store-level facts with zero customer IDs, hashes, or PII."""
+    ov = ov_ctx or get_dashboard_overview()
+    k = ov["kpis"]
+    winback = ov["campaigns"][0]
+    cr = winback.get("cap_risk", {})
+    facts: Dict[str, Any] = {
+        "store_name": "Sri Krishna Darshini",
+        "txn_count_30d": int(k["txn_count_30d"]),
+        "total_60d_txns": int(k["total_60d_txns"]),
+        "gmv_30d": int(round(float(k["gmv_30d"]))),
+        "avg_ticket": float(k["avg_ticket"]),
+        "avg_returning_bill": 217.5,
+        "total_customers": int(k["total_customers"]),
+        "repeat_rate_pct": float(k["repeat_rate_pct"]),
+        "lapsed_total": int(winback.get("total_segment_count", 48)),
+        "eligible_lapsed": int(winback["treatment_count"] + winback["holdout_count"]),
+        "treatment_count": int(winback["treatment_count"]),
+        "holdout_count": int(winback["holdout_count"]),
+        "offer_rupees": int(winback["offer_rupees"]),
+        "min_bill": int(winback["min_bill"]),
+        "max_budget": int(winback["max_budget"]),
+        "budget_spent": int(winback["budget_spent"]),
+        "suggested_cap_inr": int(cr.get("suggested_cap_inr", 400)),
+        "dead_hour_drop_pct": 70,
+        "extra_milk_liters": 18,
+        "extra_batter_kg": 12,
+    }
+    ev = winback.get("evaluation")
+    if isinstance(ev, dict):
+        pw = ev.get("profit_waterfall", {})
+        facts["treatment_returned"] = int(winback.get("treatment_returned", 0))
+        facts["holdout_returned"] = int(winback.get("holdout_returned", 0))
+        facts["net_profit_pre_fee_inr"] = round(float(pw.get("net_profit_pre_fee_inr", 0.0)), 1)
+        facts["net_profit_post_fee_inr"] = round(float(pw.get("net_profit_post_fee_inr", 0.0)), 1)
+    return facts
+
+
+def answer_merchant_question(question: str, lang: str = "en") -> Dict[str, Any]:
+    """
+    Task 15 grounded English Q&A endpoint handler:
+    - Intercepts prompt-injection / off-policy discount attempts BEFORE touching any LLM.
+    - Answers canonical Task 14 question chips deterministically.
+    - Routes open-ended English store questions through GroqGroundedQA (when enabled locally)
+      with strict zero-PII enforcement, numeric grounding verification, copy-lint check,
+      and deterministic SQLite fallback.
+    """
+    raw = (question or "").strip()
+    text = raw.lower()
+    if not raw:
+        raise ValueError("Question cannot be empty.")
+
+    # 1. Intercept adversarial / off-policy override attempts before any LLM call
+    if any(
+        k in text
+        for k in [
+            "ignore previous",
+            "ignore all",
+            "system prompt",
+            "developer mode",
+            "bypass",
+            "override",
+            "without consent",
+            "unconsented",
+            "no holdout",
+            "every day",
+            "free cashback",
+            "100%",
+        ]
+    ) or re.search(r"(\d+)\s*(?:rupees?|rs\.?)\s*(?:off|cashback)", text):
+        gr = evaluate_guardrail_attack(raw, record_audit=True)
+        if not gr["passed"]:
+            return {
+                "question": raw,
+                "answer": gr["merchant_safe_reply"],
+                "mode": "guardrail_blocked",
+                "provider": "deterministic_guardrail",
+                "grounded_verified": True,
+                "guardrail": gr,
+            }
+
+    ov_ctx = get_dashboard_overview()
+    winback = ov_ctx["campaigns"][0]
+    qa_ctx = {
+        "max_budget": winback["max_budget"],
+        "offer_rupees": winback["offer_rupees"],
+        "suggested_cap_inr": winback["cap_risk"]["suggested_cap_inr"],
+    }
+
+    # 2. Canonical Task 14 merchant question chips (instant deterministic SQLite answers)
+    chip_map = [
+        (["why these 40", "why 40", "why did you pick", "which 40"], "why_40"),
+        (["lose more than", "cross 300", "spend more than", "maximum loss"], "max_loss"),
+        (["13th customer", "after the cap", "after limit", "budget runs out", "late customer"], "after_cap"),
+        (["come anyway", "normal visits", "8 aside", "without an offer", "compare normal"], "normal_visits"),
+        (["why order 18", "why 18 liters", "why extra milk"], "milk_why"),
+    ]
+    for triggers, q_key in chip_map:
+        if any(t in text for t in triggers):
+            return {
+                "question": raw,
+                "answer": render_merchant_question_answer(q_key, qa_ctx),
+                "mode": "deterministic_chip",
+                "provider": "deterministic_sqlite",
+                "grounded_verified": True,
+                "chip_key": q_key,
+            }
+
+    # 3. Open-ended store Q&A via optional keyless GroqGroundedQA (with deterministic fallback)
+    facts = build_sanitized_store_facts(ov_ctx)
+    res = get_groq_qa().answer_question(raw, facts, lang=lang)
+    return {
+        "question": res.question,
+        "answer": res.answer,
+        "mode": res.mode,
+        "provider": res.provider,
+        "grounded_verified": res.grounded_verified,
+        "fallback_reason": res.fallback_reason,
+        "ungrounded_numbers": res.ungrounded_numbers,
+        "lint_violations": res.lint_violations,
+    }
+

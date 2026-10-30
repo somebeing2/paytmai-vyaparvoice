@@ -2,6 +2,7 @@ import contextlib
 import contextvars
 import os
 import random
+import shutil
 import sqlite3
 import threading
 from typing import Dict, Iterator, Optional
@@ -64,8 +65,22 @@ def get_conn(explicit_path: Optional[str] = None) -> sqlite3.Connection:
     if parent:
         os.makedirs(parent, exist_ok=True)
     conn = sqlite3.connect(target, timeout=15.0, check_same_thread=False)
+    conn.execute("PRAGMA synchronous = NORMAL")
+    conn.execute("PRAGMA temp_store = MEMORY")
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def clone_or_seed_session_db(dest_path: str) -> None:
+    """Fast-copy pre-seeded baseline DB_PATH when available; otherwise seed directly."""
+    base_lock = get_db_lock(DB_PATH)
+    with base_lock:
+        if not os.path.exists(DB_PATH) or os.path.getsize(DB_PATH) < 65536:
+            init_and_seed_db(force_reset=False, explicit_path=DB_PATH)
+        parent = os.path.dirname(os.path.abspath(dest_path))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        shutil.copyfile(DB_PATH, dest_path)
 
 
 def init_and_seed_db(force_reset: bool = False, explicit_path: Optional[str] = None) -> None:

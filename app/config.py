@@ -102,6 +102,11 @@ class Settings:
     max_cap_inr: int = 2500
     cap_presets_inr: tuple = (150, 250, 300, 400, 500)
 
+    # Task 15 Optional Groq grounded Q&A parameters
+    groq_model: str = "llama-3.1-8b-instant"
+    groq_timeout_seconds: float = 6.0
+    groq_max_calls_per_session: int = 20
+
     @property
     def sarvam_live_allowed(self) -> bool:
         """Live Sarvam calls are strictly forbidden on public deployments."""
@@ -137,6 +142,7 @@ def load_settings(force_reload: bool = False) -> Settings:
     sess_sec = d_cfg.get("sessions", {})
     econ_sec = d_cfg.get("economics", {})
     exp_sec = d_cfg.get("experiment", {})
+    groq_sec = d_cfg.get("groq", {})
 
     tts_sec = s_cfg.get("tts", {})
     stt_sec = s_cfg.get("stt", {})
@@ -210,9 +216,16 @@ def load_settings(force_reload: bool = False) -> Settings:
         sarvam_total_cap_pct=float(cap_sec.get("total_max_share_pct", 30.0)),
         sarvam_ledger_path=ledger_path,
         sarvam_cache_dir=cache_dir,
-        groq_enabled=_parse_bool(os.environ.get("GROQ_ENABLED"), False),
+        groq_enabled=_parse_bool(os.environ.get("GROQ_ENABLED"), bool(groq_sec.get("enabled", False))),
         groq_api_key=os.environ.get("GROQ_API_KEY", "").strip(),
-        groq_base_url=os.environ.get("GROQ_BASE_URL", "https://api.groq.com/openai/v1").rstrip("/"),
+        groq_base_url=os.environ.get(
+            "GROQ_BASE_URL", str(groq_sec.get("base_url", "https://api.groq.com/openai/v1"))
+        ).rstrip("/"),
+        groq_model=os.environ.get("GROQ_MODEL", str(groq_sec.get("model", "llama-3.1-8b-instant"))),
+        groq_timeout_seconds=float(os.environ.get("GROQ_TIMEOUT_SECONDS", groq_sec.get("timeout_seconds", 6.0))),
+        groq_max_calls_per_session=int(
+            os.environ.get("GROQ_MAX_CALLS_PER_SESSION", groq_sec.get("max_calls_per_session", 20))
+        ),
     )
     return _CACHED_SETTINGS
 

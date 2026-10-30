@@ -234,6 +234,16 @@ def test_stage2_suite() -> None:
                 assert "Rs 253.9 Cr" in ue_md and "Rs 178.1 Cr" in ue_md and "Rs 77.7 Cr" in ue_md
                 print("  [PASS] 08. Task 8 unit_economics.py matches results/unit_economics.md and Q2 FY27 ARR cases")
 
+                # 9. Task 17c: Zero-network standalone offline replay check
+                r_rep = client.get("/replay", headers={"X-Demo-Session": "s2-replay"})
+                assert r_rep.status_code == 200
+                rep_html = r_rep.text
+                assert 'src="http' not in rep_html and 'href="http' not in rep_html
+                assert "TWO-STEP VOICE CONFIRMATION" in rep_html
+                assert "52.1%" in rep_html and "88.8%" in rep_html
+                assert "PAUSED_STOP_LOSS" in rep_html
+                print("  [PASS] 09. Task 17c zero-network offline replay (/replay & demo_replay.html) verified")
+
         finally:
             if prev_sess is None:
                 os.environ.pop("SESSION_STORAGE_DIR", None)
@@ -241,7 +251,7 @@ def test_stage2_suite() -> None:
                 os.environ["SESSION_STORAGE_DIR"] = prev_sess
             load_settings(force_reload=True)
 
-    print("\nSUCCESS: 8/8 Stage 2 tests passed!")
+    print("\nSUCCESS: 9/9 Stage 2 & Stage 3 tests passed!")
 
 
 if __name__ == "__main__":

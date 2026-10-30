@@ -3,8 +3,9 @@
 - **Team Name:** SemiTechnical
 - **Member Name:** Kevin Joseph
 - **Track:** Track 1 - Merchant Growth AI (Paytm Build for India AI Hackathon, Bengaluru Finals, 31 Oct 2026)
-- **Canonical Numbers Source:** `results/slide_numbers.md` and `AUDIT.md`
-- **Live Demo URL:** `https://paytmai-vyaparvoice.onrender.com`
+- **Canonical Numbers Source:** `results/slide_numbers.md`, `results/unit_economics.md`, and `AUDIT.md`
+- **Presentation File:** `deck/v3/PaytmAI_VyaparVoice_v3.pptx` / `.pdf` (`Main 1..5` + `Appendix A1..A13`)
+- **Live Demo URL:** `https://paytmai-vyaparvoice.onrender.com` (Offline Zero-Network Replay: `app/static/demo_replay.html` / `/replay`)
 
 ---
 
@@ -45,8 +46,8 @@ Hello judges, I am Kevin Joseph, Team SemiTechnical. Paytm reported `1.64 crore`
 *(Switch to live browser tab; keep Deck Slide 3 ready behind it)*
 Let me show the live FastAPI and SQLite app on our synthetic 60-day UPI ledger (`1,613` scans across `240` payers; `917` scans and `Rs 1,74,685` GMV in 30 days):
 1. **8:30 PM Closing Brief (Merchant vs Technical View):** I play the brief in English (`EN author-checked, native review pending`) or Kannada (`DRAFT - UNREVIEWED BY NATIVE SPEAKER`). Merchant View speaks plain rupee and customer counts with zero statistical jargon, backed by Grade A SQLite counts: `48` lapsed regulars (`16 to 38` days silent), a `3 to 5 PM` slow-hour trough, and a `+18L` milk restock PO.
-2. **ITT Cap-vs-Holdout & Approval Warning:** Five guardrails filter `48` regulars down to `40` (`43` DPDP opted-in, `40` clear of the 14-day cooldown) and split `32` nudged versus `8` silent control. All `32` nudged buyers receive a `Rs 25` pass (`valid while shop offer budget lasts`, `Rs 800` face exposure), while `Rs 300` (`12` redemptions) hard-stops actual spend. At approval, our engine warns that `P(Binomial(32, 0.375) > 12) = 42.2%` exceeds `10%`, suggesting a `Rs 400` cap to avoid turning away late redeemers.
-3. **48-Hour Settlement:** After voice approval (`"Haan, bhej do"`), our simulator draws customer return visits independently of the cap first, then applies the `Rs 300` spend stop and records `cap_reached = True` with `0` refused redemptions (`12` simulated returners equals the `12`-redemption cap).
+2. **ITT Cap-vs-Holdout, Bounded Cap Editor & Two-Step Voice Confirm:** Six guardrails filter `48` regulars down to `40` (`43` DPDP opted-in, `40` clear of the 14-day cooldown) and split `32` nudged versus `8` silent control. All `32` nudged buyers receive a `Rs 25` pass (`valid while shop offer budget lasts`, `Rs 800` face exposure), while `Rs 300` (`12` redemptions) hard-stops actual spend. At approval, our engine warns that `P(Binomial(32, 0.375) > 12) = 42.2%` exceeds `10%`, and our Cap Editor (`Rs 50 to Rs 2,500`) plus two-step voice confirmation (`"Set my limit to 400 rupees"` -> `"Confirm limit"`) lowers refusal risk to `5.2%` at `Rs 400`.
+3. **Live Interim Step, 1-Tap Stop-Loss & Bayesian Scorecard:** Stepping live scans shows an explicit `INTERIM LIVE READOUT` banner with 1-tap atomic `Stop-Loss` pause. At 48 hours (`12/32` vs `1/8`, `cap_reached = True`, `0` refused at `Rs 300`), our conjugate `Beta(1,1)` posterior (`88.8%` `P(lift>0)`, `67.0%` `P(pre-fee>0)`, `52.1%` `P(post-fee>0)`, `95%` CrI `[-Rs 19.97, +Rs 14.73]`/buyer) proves why one shop cannot auto-scale without pooling `50` stores.
 
 **[1:55 - 2:35 | Slide 4: Intention-to-Treat Stats & Profit Reconciliation]**
 *(Switch to Slide 4)*

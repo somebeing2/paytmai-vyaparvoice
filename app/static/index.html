@@ -670,6 +670,7 @@
         <button class="mode-btn" id="modeTechnical" onclick="setViewMode('technical')">Technical & Audit View</button>
       </div>
       <span class="pill">Team SemiTechnical | Kevin Joseph</span>
+      <a href="/replay" style="color:#fff;text-decoration:none;font-size:11.5px;font-weight:700;padding:5px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.28);background:rgba(255,255,255,0.10);">Offline Replay</a>
       <button class="btn-reset" onclick="resetDemo()">Reset Session</button>
     </div>
   </header>
@@ -737,7 +738,7 @@
         </div>
       </div>
 
-      <div class="quick-voice-chips" style="margin-bottom:0;">
+      <div class="quick-voice-chips" style="margin-bottom:8px;">
         <div class="quick-label">Merchant Comprehension Question Chips:</div>
         <div class="chip-row">
           <button class="v-chip q-chip" onclick="sendVoiceText('Why these 40 customers?')">Why these 40 buyers?</button>
@@ -745,6 +746,14 @@
           <button class="v-chip q-chip" onclick="sendVoiceText('What if a 13th customer comes after the cap?')">13th buyer after cap?</button>
           <button class="v-chip q-chip" onclick="sendVoiceText('How do we know they would not come anyway?')">Why keep 8 without offer?</button>
           <button class="v-chip q-chip" onclick="sendVoiceText('Why order 18 liters extra milk?')">Why +18L milk?</button>
+        </div>
+      </div>
+
+      <div class="quick-voice-chips" style="margin-bottom:0;">
+        <div class="quick-label">Grounded Store Q&amp;A (SQLite / Optional Groq):</div>
+        <div style="display:flex;gap:5px;margin-top:4px;">
+          <input id="merchantQaInput" type="text" placeholder="Ask about 30d sales, afternoon hours, budget..." style="flex:1;padding:6px 8px;border-radius:7px;border:1px solid rgba(255,255,255,0.22);background:rgba(255,255,255,0.09);color:#f8fafc;font-size:11.5px;" onkeydown="if(event.key==='Enter'){submitMerchantQA();}" />
+          <button class="v-chip" style="padding:6px 10px;background:#00baf2;color:#001845;font-weight:800;" onclick="submitMerchantQA()">Ask</button>
         </div>
       </div>
 
@@ -1633,6 +1642,30 @@
           <td>${t.is_simulated ? `<span class="grade-badge grade-B">SIMULATED (${t.campaign_id})</span>` : '<span class="grade-badge grade-A">SEEDED LEDGER</span>'}</td>
         </tr>
       `).join('');
+    }
+
+    async function submitMerchantQA() {
+      const inp = document.getElementById('merchantQaInput');
+      const q = (inp && inp.value || '').trim();
+      if (!q) return;
+      const box = document.getElementById('voiceReplyBox');
+      box.style.display = 'block';
+      box.textContent = 'Checking SQLite ledger...';
+      const data = await api('/api/merchant-qa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: q, lang: currentLang })
+      });
+      const modeLabel = data.mode === 'groq_grounded'
+        ? '[GROQ GROUNDED - SQLITE VERIFIED]'
+        : (data.mode === 'guardrail_blocked' ? '[GUARDRAIL BLOCKED]' : '[DETERMINISTIC SQLITE]');
+      box.innerHTML = `<strong>${modeLabel}</strong> ${data.answer}`;
+      lastSpokenText = data.answer;
+      lastSpokenLang = 'en-IN';
+      speakUtterance(data.answer, 'en-IN', slowerSpeechMode ? 0.78 : 0.98);
+      if (data.mode === 'guardrail_blocked') {
+        await loadOverview();
+      }
     }
 
     window.addEventListener('DOMContentLoaded', async () => {

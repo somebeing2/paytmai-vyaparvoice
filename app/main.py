@@ -12,6 +12,7 @@ from .config import get_settings
 from .copy_lint import assert_valid_merchant_copy
 from .database import DB_PATH, get_conn, init_and_seed_db, use_db_path
 from .engine import (
+    answer_merchant_question,
     approve_campaign,
     evaluate_guardrail_attack,
     evaluate_what_if,
@@ -25,6 +26,7 @@ from .engine import (
     step_live_campaign_scans,
     update_campaign_cap,
 )
+from .providers.groq_qa import get_groq_qa
 from .providers.sarvam import SarvamProvider
 from .security import verify_admin_token
 from .sessions import SessionIsolationMiddleware, active_session_summary
@@ -45,7 +47,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="PaytmAI VyaparVoice - Merchant Growth Autopilot",
-    version="1.2.0",
+    version="1.3.0",
     lifespan=lifespan,
 )
 
@@ -112,9 +114,19 @@ class WhatIfPayload(BaseModel):
     allocation_ratio: float = 4.0
 
 
+class MerchantQAPayload(BaseModel):
+    question: str
+    lang: str = "en"
+
+
 @app.get("/")
 def serve_index():
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+
+
+@app.get("/replay")
+def serve_offline_replay():
+    return FileResponse(os.path.join(STATIC_DIR, "demo_replay.html"))
 
 
 @app.get("/api/health")
@@ -126,6 +138,7 @@ def health(request: Request):
         "version": settings.app_version,
         "public_deploy": settings.public_deploy,
         "paid_calls_blocked": settings.public_deploy or not settings.sarvam_live_allowed,
+        "groq_live_blocked": settings.public_deploy or not settings.groq_live_allowed,
         "session_id": getattr(request.state, "demo_session_id", None),
         "sessions": active_session_summary(),
     }
@@ -326,6 +339,19 @@ def api_voice_command(payload: VoicePayload):
     return handle_voice_command(payload.utterance, payload.lang)
 
 
+@app.post("/api/merchant-qa")
+def api_merchant_qa(payload: MerchantQAPayload):
+    try:
+        return answer_merchant_question(payload.question, payload.lang)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/providers/groq-status")
+def api_groq_status():
+    return get_groq_qa().status_dict()
+
+
 @app.post("/api/reset")
 def api_reset(request: Request):
     init_and_seed_db(force_reset=True)
@@ -346,4 +372,9 @@ def api_admin_reset_global(_authorized: bool = Depends(verify_admin_token)):
 @app.get("/api/admin/provider-status")
 def api_admin_provider_status(_authorized: bool = Depends(verify_admin_token)):
     provider = SarvamProvider()
-    return {"ok": True, "sarvam": provider.status_dict(), "sessions": active_session_summary()}
+    return {
+        "ok": True,
+        "sarvam": provider.status_dict(),
+        "groq": get_groq_qa().status_dict(),
+        "sessions": active_session_summary(),
+    }

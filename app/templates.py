@@ -107,11 +107,11 @@ def render_closing_briefing(
     return {
         "lang_code": "en-IN",
         "language_name": "English (India)",
-        "review_status": "REVIEWED",
+        "review_status": "EN author-checked, native review pending",
         "is_draft_translation": False,
         "headline": "8:30 PM Closing Voice Briefing - Paytm AI Soundbox",
         "script": script_en,
-        "romanized": "Plain Indian English - Deterministic Template (Reviewed)",
+        "romanized": "Plain Indian English - Deterministic Template (EN author-checked, native review pending)",
         "cta_hint": "Say: 'Yes, approve win-back' or click 1-Tap Approve",
         "evidence_grade": "A",
     }
@@ -155,7 +155,7 @@ def render_merchant_scorecard_summary(
     signal_phrase = (
         "Confirmed pattern across enough customers"
         if is_significant
-        else f"Early check (run about {waves_needed_80_20} weekly waves before treating this as certain)"
+        else "Early check on one store wave (pool multiple shops before treating this as certain)"
     )
     cap_phrase = (
         f"Your {max_budget} rupee limit was reached after {funded_redemptions} paid redemptions ({refused_redemptions} extra redemptions were declined after the limit)."

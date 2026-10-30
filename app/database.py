@@ -52,6 +52,12 @@ def get_db_lock(explicit_path: Optional[str] = None) -> threading.RLock:
         return lock
 
 
+def release_db_lock(explicit_path: str) -> None:
+    target = os.path.abspath(explicit_path)
+    with _LOCKS_GUARD:
+        _DB_LOCKS.pop(target, None)
+
+
 def get_conn(explicit_path: Optional[str] = None) -> sqlite3.Connection:
     target = get_active_db_path(explicit_path)
     parent = os.path.dirname(os.path.abspath(target))

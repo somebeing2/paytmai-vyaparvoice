@@ -8,8 +8,10 @@ sessions:
   isolate_visitors: true
   cookie_name: "vyaparvoice_sid"
   header_name: "X-Demo-Session"
-  ttl_seconds: 3600
-  max_active_sessions: 128
+  ttl_seconds: 1800
+  max_active_sessions: 64
+  max_session_db_bytes: 2097152
+  max_total_sessions_bytes: 33554432
   storage_dir: "app/sessions_db"
 
 economics:

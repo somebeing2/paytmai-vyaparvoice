@@ -46,12 +46,14 @@ class Settings:
     public_deploy: bool
     admin_token: str
 
-    # Session isolation
+    # Session isolation & resource bounds
     isolate_visitors: bool
     session_cookie_name: str
     session_header_name: str
     session_ttl_seconds: int
     max_active_sessions: int
+    max_session_db_bytes: int
+    max_total_sessions_bytes: int
     session_storage_dir: Path
 
     # Economics & guardrails
@@ -161,8 +163,12 @@ def load_settings(force_reload: bool = False) -> Settings:
         isolate_visitors=isolate_visitors,
         session_cookie_name=str(sess_sec.get("cookie_name", "vyaparvoice_sid")),
         session_header_name=str(sess_sec.get("header_name", "X-Demo-Session")),
-        session_ttl_seconds=int(sess_sec.get("ttl_seconds", 3600)),
-        max_active_sessions=int(sess_sec.get("max_active_sessions", 128)),
+        session_ttl_seconds=int(os.environ.get("SESSION_TTL_SECONDS", sess_sec.get("ttl_seconds", 1800))),
+        max_active_sessions=int(os.environ.get("MAX_ACTIVE_SESSIONS", sess_sec.get("max_active_sessions", 64))),
+        max_session_db_bytes=int(os.environ.get("MAX_SESSION_DB_BYTES", sess_sec.get("max_session_db_bytes", 2097152))),
+        max_total_sessions_bytes=int(
+            os.environ.get("MAX_TOTAL_SESSIONS_BYTES", sess_sec.get("max_total_sessions_bytes", 33554432))
+        ),
         session_storage_dir=sess_dir,
         default_gross_margin_pct=float(econ_sec.get("default_gross_margin_pct", 30.0)),
         paytm_promo_fee_pct=float(econ_sec.get("paytm_promo_fee_pct", 5.0)),

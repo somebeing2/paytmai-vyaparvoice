@@ -172,6 +172,101 @@ def required_sample_size_two_prop(
     }
 
 
+def compute_power_two_prop(
+    n_control: int,
+    n_treatment: int,
+    p_control: float,
+    p_treatment: float,
+    alpha: float = 0.05,
+) -> Dict[str, Any]:
+    """
+    Exact inverse of Fleiss normal/score two-proportion sample-size test
+    (equivalent to Cochran-Mantel-Haenszel pooled stratified test across equal shops).
+    """
+    if n_control <= 0 or n_treatment <= 0:
+        raise ValueError("Sample sizes must be positive.")
+    if not (0.0 < p_control < 1.0 and 0.0 < p_treatment < 1.0):
+        raise ValueError("Proportions must lie strictly inside (0, 1).")
+
+    z_alpha = _inv_norm_cdf(1.0 - alpha / 2.0)
+    diff = abs(p_treatment - p_control)
+    p_bar = (n_control * p_control + n_treatment * p_treatment) / float(n_control + n_treatment)
+    se_0 = math.sqrt(p_bar * (1.0 - p_bar) * (1.0 / n_control + 1.0 / n_treatment))
+    se_1 = math.sqrt(p_control * (1.0 - p_control) / n_control + p_treatment * (1.0 - p_treatment) / n_treatment)
+
+    def _phi(x: float) -> float:
+        return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+    pwr = _phi((diff - z_alpha * se_0) / se_1) + _phi((-diff - z_alpha * se_0) / se_1)
+    return {
+        "n_control": n_control,
+        "n_treatment": n_treatment,
+        "total_n": n_control + n_treatment,
+        "p_control": p_control,
+        "p_treatment": round(p_treatment, 4),
+        "lift_pp": round((p_treatment - p_control) * 100.0, 2),
+        "alpha_two_sided": alpha,
+        "power": round(pwr, 4),
+        "power_pct": round(pwr * 100.0, 1),
+    }
+
+
+def compute_pooled_pilot_power_table(
+    n_shops: int = 50,
+    control_per_shop: int = 8,
+    treatment_per_shop: int = 32,
+    p_control: float = 0.125,
+    lifts_pp: List[int] = [4, 5, 6, 7, 8, 10],
+    alpha: float = 0.05,
+) -> Dict[str, Any]:
+    """
+    Pooled stratified pilot power table: 50 shops x 1 wave (~40 eligible/shop)
+    = 400 control + 1,600 nudged, randomized within each shop, stratified by shop.
+    """
+    n_c = n_shops * control_per_shop
+    n_t = n_shops * treatment_per_shop
+    rows = [
+        compute_power_two_prop(n_c, n_t, p_control, p_control + lift / 100.0, alpha=alpha)
+        for lift in lifts_pp
+    ]
+    return {
+        "n_shops": n_shops,
+        "waves_per_shop": 1,
+        "n_control": n_c,
+        "n_treatment": n_t,
+        "total_n": n_c + n_t,
+        "baseline_pct": round(p_control * 100.0, 2),
+        "rows": rows,
+    }
+
+
+def compute_breakeven_lift(
+    p_control: float = 0.125,
+    avg_bill_inr: float = 217.50,
+    gross_margin_pct: float = 30.0,
+    offer_rupees: float = 25.0,
+    paytm_fee_pct: float = 5.0,
+) -> Dict[str, float]:
+    """
+    Minimum lift (percentage points above p_control) required for positive expected
+    merchant net profit per nudged customer, accounting for organic subsidy and 5% fee on all redeemed bills.
+    """
+    gp_per_inc_visit = avg_bill_inr * (gross_margin_pct / 100.0)
+    fee_per_redeemer = avg_bill_inr * (paytm_fee_pct / 100.0)
+    cost_pre_fee = offer_rupees
+    cost_post_fee = offer_rupees + fee_per_redeemer
+
+    lift_pre = (p_control * cost_pre_fee) / max(1e-9, gp_per_inc_visit - cost_pre_fee)
+    lift_post = (p_control * cost_post_fee) / max(1e-9, gp_per_inc_visit - cost_post_fee)
+    return {
+        "baseline_pct": round(p_control * 100.0, 2),
+        "breakeven_lift_pre_fee_pp": round(lift_pre * 100.0, 1),
+        "breakeven_rate_pre_fee_pct": round((p_control + lift_pre) * 100.0, 1),
+        "breakeven_lift_post_fee_pp": round(lift_post * 100.0, 1),
+        "breakeven_rate_post_fee_pct": round((p_control + lift_post) * 100.0, 1),
+    }
+
+
 def binomial_pmf(n: int, k: int, p: float) -> float:
     if k < 0 or k > n:
         return 0.0

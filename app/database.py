@@ -163,6 +163,14 @@ def init_and_seed_db(force_reset: bool = False, explicit_path: Optional[str] = N
                 event_type TEXT NOT NULL,
                 detail TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS pending_confirmations (
+                campaign_id TEXT PRIMARY KEY,
+                requested_cap_inr INTEGER NOT NULL,
+                previous_cap_inr INTEGER NOT NULL,
+                requested_via TEXT NOT NULL,
+                ts TEXT NOT NULL
+            );
             """
         )
 

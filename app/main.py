@@ -9,14 +9,21 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .config import get_settings
-from .database import DB_PATH, init_and_seed_db, use_db_path
+from .copy_lint import assert_valid_merchant_copy
+from .database import DB_PATH, get_conn, init_and_seed_db, use_db_path
 from .engine import (
     approve_campaign,
+    evaluate_guardrail_attack,
+    evaluate_what_if,
     execute_ops_action,
     get_dashboard_overview,
     get_voice_briefing,
     handle_voice_command,
+    resolve_pending_cap_change,
+    set_campaign_stop_loss,
     simulate_campaign_48h,
+    step_live_campaign_scans,
+    update_campaign_cap,
 )
 from .providers.sarvam import SarvamProvider
 from .security import verify_admin_token
@@ -26,6 +33,7 @@ from .stats import (
     compute_pooled_pilot_power_table,
     required_sample_size_two_prop,
 )
+from .templates import render_why_explanation
 
 
 @asynccontextmanager
@@ -37,7 +45,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="PaytmAI VyaparVoice - Merchant Growth Autopilot",
-    version="1.1.0",
+    version="1.2.0",
     lifespan=lifespan,
 )
 
@@ -68,6 +76,40 @@ class SimulatePayload(BaseModel):
 class VoicePayload(BaseModel):
     utterance: str
     lang: str = "en"
+
+
+class CapUpdatePayload(BaseModel):
+    new_cap_inr: int
+    actor: str = "Merchant Cap Editor"
+    confirmed: bool = True
+
+
+class CapConfirmPayload(BaseModel):
+    confirm: bool = True
+    actor: str = "Merchant Confirmed"
+
+
+class StepLivePayload(BaseModel):
+    step_size: int = 4
+
+
+class StopLossPayload(BaseModel):
+    pause: bool = True
+    actor: str = "Merchant Stop-Loss"
+
+
+class GuardrailAttackPayload(BaseModel):
+    attack_text: str
+    record_audit: bool = True
+
+
+class WhatIfPayload(BaseModel):
+    offer_rupees: int = 25
+    min_bill: int = 150
+    max_budget: int = 300
+    gross_margin_pct: float = 30.0
+    paytm_fee_pct: float = 5.0
+    allocation_ratio: float = 4.0
 
 
 @app.get("/")
@@ -122,6 +164,74 @@ def api_power(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@app.get("/api/breakeven")
+def api_breakeven(
+    p_control: float = 0.125,
+    avg_bill_inr: float = 217.50,
+    gross_margin_pct: float = 30.0,
+    offer_rupees: float = 25.0,
+    paytm_fee_pct: float = 5.0,
+):
+    if not (0.01 <= p_control <= 0.90) or avg_bill_inr <= 0 or gross_margin_pct <= 0 or offer_rupees < 0:
+        raise HTTPException(status_code=400, detail="Invalid break-even calculator parameters.")
+    gp_visit = round(avg_bill_inr * (gross_margin_pct / 100.0), 2)
+    fee_visit = round(avg_bill_inr * (paytm_fee_pct / 100.0), 2)
+    if gp_visit <= offer_rupees:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Offer Rs {offer_rupees:.0f} exceeds gross profit per visit Rs {gp_visit:.2f}; campaign cannot break even.",
+        )
+    res = compute_breakeven_lift(
+        p_control=p_control,
+        avg_bill_inr=avg_bill_inr,
+        gross_margin_pct=gross_margin_pct,
+        offer_rupees=offer_rupees,
+        paytm_fee_pct=paytm_fee_pct,
+    )
+    res["gross_profit_per_visit_inr"] = gp_visit
+    res["paytm_fee_per_redeemed_visit_inr"] = fee_visit
+    plain = (
+        f"At {gross_margin_pct:.0f} percent shop margin on a {avg_bill_inr:.0f} rupee average bill, "
+        f"each extra visit brings {gp_visit:.0f} rupees before cashback. "
+        f"To cover a {offer_rupees:.0f} rupee pass, return visits must rise from {res['baseline_pct']:.1f} percent "
+        f"to at least {res['breakeven_rate_pre_fee_pct']:.1f} percent before fee ({res['breakeven_rate_post_fee_pct']:.1f} percent after fee)."
+    )
+    res["merchant_summary"] = assert_valid_merchant_copy(plain)
+    return res
+
+
+@app.post("/api/guardrail-check")
+def api_guardrail_check(payload: GuardrailAttackPayload):
+    return evaluate_guardrail_attack(payload.attack_text, record_audit=payload.record_audit)
+
+
+@app.post("/api/what-if")
+def api_what_if(payload: WhatIfPayload):
+    return evaluate_what_if(
+        offer_rupees=payload.offer_rupees,
+        min_bill=payload.min_bill,
+        max_budget=payload.max_budget,
+        gross_margin_pct=payload.gross_margin_pct,
+        paytm_fee_pct=payload.paytm_fee_pct,
+        allocation_ratio=payload.allocation_ratio,
+    )
+
+
+@app.get("/api/why/{item_id}")
+def api_why(item_id: str):
+    conn = get_conn()
+    cur = conn.cursor()
+    row = cur.execute("SELECT * FROM campaigns WHERE campaign_id = ?", (item_id,)).fetchone()
+    if row:
+        conn.close()
+        return render_why_explanation(item_id, dict(row))
+    op_row = cur.execute("SELECT * FROM ops_actions WHERE action_id = ?", (item_id,)).fetchone()
+    conn.close()
+    if op_row:
+        return render_why_explanation(item_id, dict(op_row))
+    raise HTTPException(status_code=404, detail=f"Unknown recommendation id: {item_id}")
+
+
 @app.post("/api/campaigns/{campaign_id}/approve")
 def api_approve_campaign(campaign_id: str, payload: Optional[ApprovePayload] = None):
     body = payload or ApprovePayload()
@@ -131,6 +241,56 @@ def api_approve_campaign(campaign_id: str, payload: Optional[ApprovePayload] = N
             via=body.via,
             custom_max_budget=body.custom_max_budget,
         )
+        return {"ok": True, "campaign": cmp_data}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.post("/api/campaigns/{campaign_id}/cap")
+def api_update_campaign_cap(campaign_id: str, payload: CapUpdatePayload):
+    try:
+        cmp_data = update_campaign_cap(
+            campaign_id,
+            new_cap_inr=payload.new_cap_inr,
+            actor=payload.actor,
+            confirmed=payload.confirmed,
+        )
+        return {"ok": True, "campaign": cmp_data}
+    except ValueError as exc:
+        code = 404 if "not found" in str(exc).lower() else 400
+        raise HTTPException(status_code=code, detail=str(exc))
+
+
+@app.post("/api/campaigns/{campaign_id}/cap/confirm")
+def api_confirm_campaign_cap(campaign_id: str, payload: Optional[CapConfirmPayload] = None):
+    body = payload or CapConfirmPayload()
+    try:
+        cmp_data = resolve_pending_cap_change(
+            campaign_id,
+            confirm=body.confirm,
+            actor=body.actor,
+        )
+        return {"ok": True, "campaign": cmp_data}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/campaigns/{campaign_id}/step-live")
+def api_step_live_campaign(campaign_id: str, payload: Optional[StepLivePayload] = None):
+    body = payload or StepLivePayload()
+    try:
+        cmp_data = step_live_campaign_scans(campaign_id, step_size=body.step_size)
+        return {"ok": True, "campaign": cmp_data}
+    except ValueError as exc:
+        code = 404 if "not found" in str(exc).lower() else 400
+        raise HTTPException(status_code=code, detail=str(exc))
+
+
+@app.post("/api/campaigns/{campaign_id}/stop-loss")
+def api_stop_loss_campaign(campaign_id: str, payload: Optional[StopLossPayload] = None):
+    body = payload or StopLossPayload()
+    try:
+        cmp_data = set_campaign_stop_loss(campaign_id, pause=body.pause, actor=body.actor)
         return {"ok": True, "campaign": cmp_data}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
@@ -148,7 +308,8 @@ def api_simulate_campaign(campaign_id: str, payload: Optional[SimulatePayload] =
         )
         return {"ok": True, "campaign": cmp_data}
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        code = 404 if "not found" in str(exc).lower() else 400
+        raise HTTPException(status_code=code, detail=str(exc))
 
 
 @app.post("/api/ops/{action_id}/execute")
@@ -167,7 +328,6 @@ def api_voice_command(payload: VoicePayload):
 
 @app.post("/api/reset")
 def api_reset(request: Request):
-    """Resets only the active visitor session database (never clobbers other visitors)."""
     init_and_seed_db(force_reset=True)
     return {
         "ok": True,
@@ -178,7 +338,6 @@ def api_reset(request: Request):
 
 @app.post("/api/admin/reset-global")
 def api_admin_reset_global(_authorized: bool = Depends(verify_admin_token)):
-    """Protected global base-DB reset requiring X-Admin-Token header."""
     with use_db_path(DB_PATH):
         init_and_seed_db(force_reset=True)
     return {"ok": True, "message": "Global baseline database reset."}

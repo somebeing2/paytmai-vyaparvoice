@@ -97,6 +97,11 @@ class Settings:
     groq_api_key: str = ""
     groq_base_url: str = "https://api.groq.com/openai/v1"
 
+    # Stage 2 Cap Editor bounds
+    min_cap_inr: int = 50
+    max_cap_inr: int = 2500
+    cap_presets_inr: tuple = (150, 250, 300, 400, 500)
+
     @property
     def sarvam_live_allowed(self) -> bool:
         """Live Sarvam calls are strictly forbidden on public deployments."""
@@ -176,6 +181,9 @@ def load_settings(force_reload: bool = False) -> Settings:
         steady_state_redeemed_gmv_monthly_inr=float(econ_sec.get("steady_state_redeemed_gmv_monthly_inr", 2040.0)),
         max_discount_floor_pct=float(econ_sec.get("max_discount_floor_pct", 22.0)),
         cooldown_days=int(econ_sec.get("cooldown_days", 14)),
+        min_cap_inr=int(econ_sec.get("min_cap_inr", 50)),
+        max_cap_inr=int(econ_sec.get("max_cap_inr", 2500)),
+        cap_presets_inr=tuple(int(x) for x in econ_sec.get("cap_presets_inr", [150, 250, 300, 400, 500])),
         default_allocation_ratio=float(exp_sec.get("default_allocation_ratio", 4.0)),
         alpha_two_sided=float(exp_sec.get("alpha_two_sided", 0.05)),
         target_power=float(exp_sec.get("target_power", 0.80)),

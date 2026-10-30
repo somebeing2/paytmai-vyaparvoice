@@ -77,6 +77,22 @@ Primary Sources:
 
 - **Pilot Advancement Decision Rule (Appendix A9):** Advance to citywide rollout **only if the lower 95% confidence bound of net profit per nudged customer after the 5% fee is above zero AND the observed lift exceeds the break-even lift (`+15.3 pp` post-fee at `30%` shop margin)**.
 
+### 3.3 Stage 2 Cap Editor, Two-Step Voice Confirmation & Bayesian Merchant Scorecard (`stage2-ok`, `v1.2.0`)
+- **Cap Editor Bounds & Presets (`app/engine.py: update_campaign_cap`):** Hard bounds `[Rs 50, Rs 2,500]` (at least `1` pass of `Rs 25`); UI presets `Rs 150` (`6` paid), `Rs 250` (`10` paid), `Rs 300` (`12` paid, default), `Rs 400` (`16` paid, `<=10%` overrun risk suggested), `Rs 500` (`20` paid). Voice cap changes require **two-step merchant confirmation** (`CAP_CONFIRMATION_PENDING` -> `CAP_CONFIRMED`) and write immutable rows to `audit_logs`.
+- **Live Interim Wave Monitor & Stop-Loss (`step_live_campaign_scans`, `set_campaign_stop_loss`):** Displays `INTERIM DIRECTIONAL READOUT - DO NOT STOP EARLY FOR WINNER` during live scans and provides an atomic 1-tap `PAUSED_STOP_LOSS` halt (`BLOCKED_STOP_LOSS` on pass scan).
+- **Bayesian Single-Wave Profit Posterior (`app/stats.py: compute_bayesian_profit_posterior`, `Beta(1,1)` uniform prior, `10,000` draws, seed `20261025`, Evidence Grade B/C):**
+  - `P(Lift > 0 | Data)` = **`88.8%`**
+  - `P(Pre-Fee Net Profit > Rs 0 | Data)` = **`67.0%`**
+  - `P(Post-5%-Fee Net Profit > Rs 0 | Data)` = **`52.1%`**
+  - `95%` Posterior Credible Interval per Nudged Customer (Post-Fee) = **`[-Rs 19.97, +Rs 14.73]`** (`pilot_advancement_rule_met = False` on `n = 40`, proving why pooling `50` shops to `N = 2,000` is essential).
+- **2D Margin x Paytm Fee Net Profit Sensitivity Matrix (`CMP-WINBACK-01`, `Rs 1,740` Incremental Sales, `Rs 300` Spend, `Rs 2,610` Redeemed Bills, Evidence Grade C):**
+  - `15%` Margin: `-Rs 39.00` (`0%` fee) / `-Rs 169.50` (`5%` fee) / `-Rs 221.70` (`7%` fee)
+  - `20%` Margin: `+Rs 48.00` (`0%` fee) / `-Rs 82.50` (`5%` fee) / `-Rs 134.70` (`7%` fee)
+  - `25%` Margin: `+Rs 135.00` (`0%` fee) / `+Rs 4.50` (`5%` fee) / `-Rs 47.70` (`7%` fee)
+  - `30%` Margin (Base): `+Rs 222.00` (`0%` fee) / **`+Rs 91.50` (`5%` fee)** / `+Rs 39.30` (`7%` fee)
+  - `35%` Margin: `+Rs 309.00` (`0%` fee) / `+Rs 178.50` (`5%` fee) / `+Rs 126.30` (`7%` fee)
+  - `40%` Margin: `+Rs 396.00` (`0%` fee) / `+Rs 265.50` (`5%` fee) / `+Rs 213.30` (`7%` fee)
+
 ---
 
 ## 4. Unit Economics, Fee Reconciliation & ARR Cases (`ASSUMPTION` / `MODELLED`, Evidence Grade C)

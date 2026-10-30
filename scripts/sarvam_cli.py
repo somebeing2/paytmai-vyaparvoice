@@ -19,6 +19,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.config import Settings, get_settings, load_settings
+from app.database import init_and_seed_db
 from app.engine import get_voice_briefing
 from app.ledger import CreditCapExceededError, SarvamCreditLedger
 from app.providers.cache import PhraseAudioCache
@@ -146,6 +147,7 @@ def cmd_activate() -> int:
         )
         return 1
 
+    init_and_seed_db(force_reset=False)
     provider = SarvamProvider(settings=settings)
     results = []
     for lang in ("en", "kn", "hi"):

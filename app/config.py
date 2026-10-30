@@ -41,7 +41,7 @@ def _load_dotenv_non_destructive(dotenv_path: Path) -> None:
     """Load local .env key-values into os.environ only if not already set."""
     if not dotenv_path.exists():
         return
-    for raw_line in dotenv_path.read_text(encoding="utf-8").splitlines():
+    for raw_line in dotenv_path.read_text(encoding="utf-8-sig").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -226,7 +226,7 @@ def load_settings(force_reload: bool = False) -> Settings:
         sarvam_tts_endpoint=str(tts_sec.get("endpoint", "/text-to-speech")),
         sarvam_tts_model=str(tts_sec.get("model", "bulbul:v3")),
         sarvam_tts_cost_per_10k_inr=float(tts_sec.get("cost_per_10k_chars_inr", 30.0)),
-        sarvam_speakers=dict(tts_sec.get("speakers", {"en-IN": "anushka", "kn-IN": "anushka", "hi-IN": "abhilash"})),
+        sarvam_speakers=dict(tts_sec.get("speakers", {"en-IN": "priya", "kn-IN": "priya", "hi-IN": "shubh"})),
         sarvam_stt_endpoint=str(stt_sec.get("endpoint", "/speech-to-text")),
         sarvam_stt_model=str(stt_sec.get("model", "saaras:v3")),
         sarvam_stt_cost_per_hour_inr=float(stt_sec.get("cost_per_hour_inr", 30.0)),

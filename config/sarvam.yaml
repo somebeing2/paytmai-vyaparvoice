@@ -1,5 +1,5 @@
 base_url: "https://api.sarvam.ai"
-timeout_seconds: 8.0
+timeout_seconds: 15.0
 
 tts:
   endpoint: "/text-to-speech"
@@ -7,11 +7,11 @@ tts:
   fallback_model: "bulbul:v2"
   cost_per_10k_chars_inr: 30.0
   fallback_cost_per_10k_chars_inr: 15.0
-  target_sample_rate: 16000
+  target_sample_rate: 22050
   speakers:
-    en-IN: "anushka"
-    kn-IN: "anushka"
-    hi-IN: "abhilash"
+    en-IN: "priya"
+    kn-IN: "priya"
+    hi-IN: "shubh"
 
 stt:
   endpoint: "/speech-to-text"

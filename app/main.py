@@ -1,23 +1,40 @@
+from contextlib import asynccontextmanager
 import os
-from fastapi import FastAPI, HTTPException
+from typing import Optional
+
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .database import init_and_seed_db
+from .config import get_settings
+from .database import DB_PATH, init_and_seed_db, use_db_path
 from .engine import (
+    approve_campaign,
+    execute_ops_action,
     get_dashboard_overview,
     get_voice_briefing,
-    approve_campaign,
-    simulate_campaign_48h,
-    execute_ops_action,
     handle_voice_command,
+    simulate_campaign_48h,
 )
+from .providers.sarvam import SarvamProvider
+from .security import verify_admin_token
+from .sessions import SessionIsolationMiddleware, active_session_summary
+from .stats import required_sample_size_two_prop
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    with use_db_path(DB_PATH):
+        init_and_seed_db(force_reset=False)
+    yield
+
 
 app = FastAPI(
-    title="PaytmAI VyaparVoice — Merchant Growth Autopilot",
-    version="1.0.0",
+    title="PaytmAI VyaparVoice - Merchant Growth Autopilot",
+    version="1.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -27,18 +44,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(SessionIsolationMiddleware)
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
-@app.on_event("startup")
-def on_startup() -> None:
-    init_and_seed_db(force_reset=False)
-
-
 class ApprovePayload(BaseModel):
     via: str = "1-Tap Soundbox"
+    custom_max_budget: Optional[int] = None
+
+
+class SimulatePayload(BaseModel):
+    mode: str = "canonical"
+    seed: int = 20261025
+    override_max_budget: Optional[int] = None
 
 
 class VoicePayload(BaseModel):
@@ -52,8 +72,17 @@ def serve_index():
 
 
 @app.get("/api/health")
-def health():
-    return {"status": "ok", "service": "PaytmAI VyaparVoice"}
+def health(request: Request):
+    settings = get_settings()
+    return {
+        "status": "ok",
+        "service": settings.app_name,
+        "version": settings.app_version,
+        "public_deploy": settings.public_deploy,
+        "paid_calls_blocked": settings.public_deploy or not settings.sarvam_live_allowed,
+        "session_id": getattr(request.state, "demo_session_id", None),
+        "sessions": active_session_summary(),
+    }
 
 
 @app.get("/api/overview")
@@ -66,22 +95,53 @@ def api_briefing(lang: str = "en"):
     return get_voice_briefing(lang)
 
 
-@app.post("/api/campaigns/{campaign_id}/approve")
-def api_approve_campaign(campaign_id: str, payload: ApprovePayload):
+@app.get("/api/power")
+def api_power(
+    p_control: float = 0.125,
+    p_treatment: float = 0.375,
+    allocation_ratio: float = 4.0,
+    alpha: float = 0.05,
+    power: float = 0.80,
+):
     try:
-        cmp_data = approve_campaign(campaign_id, via=payload.via)
+        return required_sample_size_two_prop(
+            p_control=p_control,
+            p_treatment=p_treatment,
+            alpha=alpha,
+            power=power,
+            allocation_ratio=allocation_ratio,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/campaigns/{campaign_id}/approve")
+def api_approve_campaign(campaign_id: str, payload: Optional[ApprovePayload] = None):
+    body = payload or ApprovePayload()
+    try:
+        cmp_data = approve_campaign(
+            campaign_id,
+            via=body.via,
+            custom_max_budget=body.custom_max_budget,
+        )
         return {"ok": True, "campaign": cmp_data}
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 
 @app.post("/api/campaigns/{campaign_id}/simulate")
-def api_simulate_campaign(campaign_id: str):
+def api_simulate_campaign(campaign_id: str, payload: Optional[SimulatePayload] = None):
+    body = payload or SimulatePayload()
     try:
-        cmp_data = simulate_campaign_48h(campaign_id)
+        cmp_data = simulate_campaign_48h(
+            campaign_id,
+            mode=body.mode,
+            seed=body.seed,
+            override_max_budget=body.override_max_budget,
+        )
         return {"ok": True, "campaign": cmp_data}
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 
 @app.post("/api/ops/{action_id}/execute")
@@ -89,8 +149,8 @@ def api_execute_ops(action_id: str):
     try:
         ops_data = execute_ops_action(action_id)
         return {"ok": True, "ops_action": ops_data}
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 
 @app.post("/api/voice-command")
@@ -99,6 +159,25 @@ def api_voice_command(payload: VoicePayload):
 
 
 @app.post("/api/reset")
-def api_reset():
+def api_reset(request: Request):
+    """Resets only the active visitor session database (never clobbers other visitors)."""
     init_and_seed_db(force_reset=True)
-    return {"ok": True, "message": "Demo database reset to fresh 8:30 PM evening state."}
+    return {
+        "ok": True,
+        "session_id": getattr(request.state, "demo_session_id", "local-default"),
+        "message": "Your isolated demo session has been reset to the 8:30 PM closing state.",
+    }
+
+
+@app.post("/api/admin/reset-global")
+def api_admin_reset_global(_authorized: bool = Depends(verify_admin_token)):
+    """Protected global base-DB reset requiring X-Admin-Token header."""
+    with use_db_path(DB_PATH):
+        init_and_seed_db(force_reset=True)
+    return {"ok": True, "message": "Global baseline database reset."}
+
+
+@app.get("/api/admin/provider-status")
+def api_admin_provider_status(_authorized: bool = Depends(verify_admin_token)):
+    provider = SarvamProvider()
+    return {"ok": True, "sarvam": provider.status_dict(), "sessions": active_session_summary()}

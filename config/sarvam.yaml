@@ -1,0 +1,31 @@
+base_url: "https://api.sarvam.ai"
+timeout_seconds: 8.0
+
+tts:
+  endpoint: "/text-to-speech"
+  model: "bulbul:v3"
+  fallback_model: "bulbul:v2"
+  cost_per_10k_chars_inr: 30.0
+  fallback_cost_per_10k_chars_inr: 15.0
+  target_sample_rate: 16000
+  speakers:
+    en-IN: "anushka"
+    kn-IN: "anushka"
+    hi-IN: "abhilash"
+
+stt:
+  endpoint: "/speech-to-text"
+  model: "saaras:v3"
+  cost_per_hour_inr: 30.0
+  default_clip_seconds: 5.0
+
+translate:
+  endpoint: "/translate"
+  cost_per_10k_chars_inr: 20.0
+
+credit_caps:
+  tts_max_share_pct: 15.0
+  stt_max_share_pct: 15.0
+  total_max_share_pct: 30.0
+  ledger_path: "data/sarvam_credit_ledger.json"
+  cache_dir: "data/audio_cache"

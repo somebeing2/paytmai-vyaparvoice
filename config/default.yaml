@@ -1,0 +1,31 @@
+app:
+  name: "PaytmAI VyaparVoice"
+  version: "1.1.0"
+  public_deploy_default: false
+  live_demo_url: "https://paytmai-vyaparvoice.onrender.com"
+
+sessions:
+  isolate_visitors: true
+  cookie_name: "vyaparvoice_sid"
+  header_name: "X-Demo-Session"
+  ttl_seconds: 3600
+  max_active_sessions: 128
+  storage_dir: "app/sessions_db"
+
+economics:
+  default_gross_margin_pct: 30.0
+  paytm_promo_fee_pct: 5.0
+  steady_state_campaigns_per_month: 0.782
+  steady_state_redeemed_gmv_monthly_inr: 2040.0
+  max_discount_floor_pct: 22.0
+  cooldown_days: 14
+
+experiment:
+  default_allocation_ratio: 4.0
+  alpha_two_sided: 0.05
+  target_power: 0.80
+  cap_overrun_warn_threshold: 0.10
+  assumed_redemption_rates:
+    CMP-WINBACK-01: 0.375
+    CMP-DEADHOUR-02: 0.407
+    default: 0.35

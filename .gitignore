@@ -5,13 +5,24 @@ __pycache__/
 .venv/
 venv/
 env/
+.pytest_cache/
 
-# Runtime SQLite database (auto-generated & seeded on startup)
+# Runtime SQLite databases & isolated visitor sessions
 app/vyaparvoice.db
+app/sessions_db/
+*.db
 *.db-journal
+*.db-wal
+*.db-shm
 
-# Local environment secrets
+# Runtime ledgers & temporary exports (cached audio tracked only if explicitly committed)
+data/sarvam_credit_ledger.json
+exports/
+
+# Local environment secrets (NEVER commit)
 .env
+.env.*
+!.env.example
 
 # OS & IDE files
 .DS_Store

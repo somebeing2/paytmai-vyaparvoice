@@ -1,6 +1,6 @@
 app:
   name: "PaytmAI VyaparVoice"
-  version: "1.1.0"
+  version: "1.2.0"
   public_deploy_default: false
   live_demo_url: "https://paytmai-vyaparvoice.onrender.com"
 
@@ -21,6 +21,16 @@ economics:
   steady_state_redeemed_gmv_monthly_inr: 2040.0
   max_discount_floor_pct: 22.0
   cooldown_days: 14
+  min_cap_inr: 50
+  max_cap_inr: 2500
+  cap_presets_inr: [150, 250, 300, 400, 500]
+  saas_addon_monthly_inr: 79.0
+  credit_referral_monthly_inr: 77.0
+  slm_monthly_cogs_inr: 1.80
+  tts_cached_monthly_cogs_inr: 3.20
+  tts_uncached_monthly_cogs_inr: 27.00
+  messaging_monthly_cogs_inr: 43.00
+  paytm_merchant_subscriptions_cr: 1.64
 
 experiment:
   default_allocation_ratio: 4.0

@@ -170,3 +170,167 @@ def render_merchant_scorecard_summary(
         f"{net_profit_pre_fee:.0f} rupees before Paytm's fee ({net_profit_post_fee:.2f} rupees after the 5 percent redeemed-bill fee)."
     )
     return assert_valid_merchant_copy(msg, check_sentence_length=True)
+
+
+def render_merchant_scorecard_verdict(
+    net_profit_pre_fee: float,
+    net_profit_post_fee: float,
+    prob_profit_pre_fee_pct: float,
+    prob_profit_post_fee_pct: float,
+    is_significant: bool,
+    gross_margin_pct: float = 30.0,
+) -> Dict[str, str]:
+    """
+    Task 11 plain-language Merchant Scorecard verdict (lint-verified against banned jargon).
+    """
+    if is_significant and net_profit_post_fee > 0:
+        badge = "CONFIRMED PROFITABLE PATTERN"
+        verdict = (
+            f"Strong result across enough buyers. At your assumed {gross_margin_pct:.0f} percent margin, "
+            f"estimated profit is {net_profit_post_fee:.2f} rupees after all fees ({prob_profit_post_fee_pct:.0f} percent chance of staying positive)."
+        )
+    elif net_profit_post_fee > 0:
+        badge = "PROMISING SINGLE-SHOP CHECK (NEEDS MORE SHOPS)"
+        verdict = (
+            f"Promising early result on one shop run, showing {net_profit_pre_fee:.0f} rupees profit before fee "
+            f"and {net_profit_post_fee:.2f} rupees after fee at {gross_margin_pct:.0f} percent margin. "
+            f"Because only 8 buyers had no offer, chance of positive profit after fee is {prob_profit_post_fee_pct:.0f} percent until pooled across 50 shops."
+        )
+    elif net_profit_pre_fee > 0:
+        badge = "PROFITABLE BEFORE FEE ONLY"
+        verdict = (
+            f"Positive {net_profit_pre_fee:.0f} rupees before fee, while net result after the 5 percent bill fee is "
+            f"{net_profit_post_fee:.2f} rupees at {gross_margin_pct:.0f} percent margin. Lower the cashback amount before repeating."
+        )
+    else:
+        badge = "PAUSE AND LOWER OFFER AMOUNT"
+        verdict = (
+            f"Estimated result is {net_profit_post_fee:.2f} rupees at {gross_margin_pct:.0f} percent margin. "
+            f"Keep the campaign paused or lower the cashback pass to protect shop margin."
+        )
+    return {
+        "badge": badge,
+        "verdict_plain": assert_valid_merchant_copy(verdict, check_sentence_length=True),
+    }
+
+
+def render_voice_cap_confirmation_prompt(
+    old_cap: int,
+    new_cap: int,
+    offer_rupees: int,
+    overrun_prob_pct: float,
+) -> str:
+    max_paid = new_cap // max(1, offer_rupees)
+    msg = (
+        f"Please confirm: change your spending limit from {old_cap} rupees to {new_cap} rupees, "
+        f"funding up to {max_paid} customer redemptions ({overrun_prob_pct:.0f} percent chance more buyers arrive). "
+        f"Say Confirm limit or tap Confirm to save."
+    )
+    return assert_valid_merchant_copy(msg, check_sentence_length=True)
+
+
+def render_voice_cap_confirmed_reply(
+    old_cap: int,
+    new_cap: int,
+    offer_rupees: int,
+) -> str:
+    max_paid = new_cap // max(1, offer_rupees)
+    msg = (
+        f"Confirmed! Your cashback spending limit is updated from {old_cap} rupees to {new_cap} rupees, "
+        f"covering up to {max_paid} paid redemptions of {offer_rupees} rupees each."
+    )
+    return assert_valid_merchant_copy(msg, check_sentence_length=True)
+
+
+def render_why_explanation(item_id: str, ctx: Dict[str, Any]) -> Dict[str, str]:
+    """
+    Task 14 'Why?' button explanation returning both plain-language merchant copy
+    (lint-checked) and technical SQL/policy provenance.
+    """
+    if item_id == "CMP-WINBACK-01":
+        plain = (
+            f"We spotted {ctx.get('detected_count', 48)} regular evening buyers who visited 5 to 10 times before "
+            f"and then stayed away for 16 to 38 days. "
+            f"After removing {ctx.get('detected_count', 48) - ctx.get('eligible_count', 40)} buyers without message permission or messaged recently, "
+            f"{ctx.get('treatment_count', 32)} get a {ctx.get('offer_rupees', 25)} rupee pass and {ctx.get('holdout_count', 8)} get none to compare normal visits."
+        )
+        tech = (
+            f"SQL Trigger: archetype='at_risk_regular' (COUNT={ctx.get('detected_count', 48)}, min_days_ago IN [16,38], visits IN [5,10]) "
+            f"AND dpdp_consent=1 AND last_promo_days_ago>=14 -> {ctx.get('eligible_count', 40)} eligible "
+            f"({ctx.get('treatment_count', 32)} treatment / {ctx.get('holdout_count', 8)} control; discount {round(ctx.get('offer_rupees',25)/max(1,ctx.get('min_bill',150))*100,1)}% <= 22% floor)."
+        )
+    elif item_id == "CMP-DEADHOUR-02":
+        plain = (
+            f"Your QR counter drops by 70 percent between 3 PM and 5 PM compared to your morning rush. "
+            f"Sending a {ctx.get('offer_rupees', 20)} rupee snack pass on {ctx.get('min_bill', 110)} rupee bills "
+            f"to {ctx.get('treatment_count', 27)} afternoon buyers fills empty tables within a {ctx.get('max_budget', 240)} rupee limit."
+        )
+        tech = (
+            f"SQL Trigger: hour_of_day IN (15,16) 30d scan count = 30 vs peak 101 (-70.3%); "
+            f"archetype='afternoon_snack' AND dpdp_consent=1 AND last_promo_days_ago>=14 -> {ctx.get('eligible_count', 34)} eligible "
+            f"({ctx.get('treatment_count', 27)} treatment / {ctx.get('holdout_count', 7)} control)."
+        )
+    elif item_id == "OPS-STOCK-01":
+        plain = (
+            "Over the past four Saturdays, morning breakfast and coffee bills jumped 28 percent above weekdays. "
+            "Ordering 18 liters extra milk and 12 kilograms batter tonight avoids running out before 10 AM tomorrow."
+        )
+        tech = (
+            "Ops Rule: Saturday 7-10 AM historical scan velocity +28% vs Mon-Thu baseline; "
+            "WhatsApp PO #BLR-904 pre-filled for Sri Vinayaka Dairy (est. Rs 4,100 revenue protected)."
+        )
+    else:
+        plain = (
+            "Two long-time morning regulars waited longer during peak rush and stopped visiting this week. "
+            "Sending a polite apology with a 30 rupee coffee voucher brings back high-visit regulars early."
+        )
+        tech = (
+            "Ops Rule: loyal_champion recency spike >7d after peak-queue cluster; "
+            "targeted Rs 30 service-recovery voucher for 2 flagged regulars."
+        )
+
+    return {
+        "item_id": item_id,
+        "merchant_plain": assert_valid_merchant_copy(plain, check_sentence_length=True),
+        "technical_provenance": tech,
+        "evidence_grade": "A",
+    }
+
+
+def render_merchant_question_answer(question_key: str, ctx: Dict[str, Any]) -> str:
+    """
+    Task 14 deterministic answers for the 5 Merchant Question Chips, all lint-checked.
+    """
+    max_cap = int(ctx.get("max_budget", 300))
+    offer = int(ctx.get("offer_rupees", 25))
+    max_paid = max_cap // max(1, offer)
+
+    if question_key == "why_40":
+        ans = (
+            "Out of 48 regular evening buyers who have not visited for 16 to 38 days, "
+            "5 did not agree to shop offers and 3 received a message within 14 days. "
+            "That leaves 40 buyers safe to include tonight."
+        )
+    elif question_key == "max_loss":
+        ans = (
+            f"No, your cashback payout cannot cross {max_cap} rupees. "
+            f"Even though all 32 buyers receive a {offer} rupee pass, automatic payout stops strictly after {max_paid} paid bills."
+        )
+    elif question_key == "after_cap":
+        ans = (
+            f"Each pass states it is valid while the shop offer budget lasts. "
+            f"Once {max_paid} buyers claim {max_cap} rupees, a later buyer pays the normal bill without cashback, "
+            f"or you can raise your limit beforehand to {ctx.get('suggested_cap_inr', 400)} rupees."
+        )
+    elif question_key == "normal_visits":
+        ans = (
+            "We keep 8 similar silent regular buyers aside without sending them any message. "
+            "Comparing how many of the 32 buyers with an offer return against those 8 shows extra visits above normal walk-ins."
+        )
+    else:
+        ans = (
+            "Your Paytm QR history shows Saturday morning breakfast bills run 28 percent higher than weekdays. "
+            "Adding 18 liters milk and 12 kilograms batter tonight prevents running short during the 8 to 10 AM rush."
+        )
+    return assert_valid_merchant_copy(ans, check_sentence_length=True)
+

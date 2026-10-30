@@ -1,14 +1,13 @@
 """
-Deck v2 Generator for PaytmAI VyaparVoice.
+Deck v2.1 Generator for PaytmAI VyaparVoice.
 Produces:
   - 5-Slide Lean Main Deck (>=18pt body text, <=5 real PPTX bullets/slide, full speaker notes)
   - 11-Slide Corrected & Expanded Appendix (A1-A9 updated + A10 Merchant Scorecard + A11 Cap & Dose-Response)
-Incorporates all Stage 1 outputs and Decisions 1-5:
-  1. ITT Cap-vs-Holdout (32 passes issued = Rs 800 face vs Rs 300 hard spend stop; simulated 12 = cap; >10% warning; A4 rewritten).
-  2. Power Wording (80/20 split: ~31 control + ~124 nudged = 155 total, ~4 waves; 50/50 split: 46/arm).
-  3. Paytm Q2 FY27 Figures (Reported 26 Oct 2026: 1.64 Cr subscription merchants, Rs 7.1L Cr GMV, Rs 2,648 Cr rev; ~7% loan pen & Rs 90-100/mo Soundbox tagged ASSUMPTION; 5% base = 8.20L shops -> Rs 77.7 / 178.1 / 253.9 Cr ARR).
-  4. Fee Reconciliation (Rs 130.50 single-wave 5% fee on all Rs 2,610 redeemed bills incl. organic returners vs Rs 102/mo steady-state at ~0.78 waves/mo = Rs 2,040/mo redeemed bills).
-  5. Cosmetic (Real OpenXML bullets instead of '*', balanced/resized cards on Slides 4 & 5, live URL + scannable QR code on Slide 2).
+Incorporates all Stage 1 + Deck v2.1 revisions:
+  1. Pooled 50-Shop Stratified Pilot (50 shops x 1 wave = ~400 control + ~1,600 nudged, randomized within shop, stratified by shop; power 50.3%, 68.8%, 83.3%, 92.5%, 97.2%, 99.8% for +4, +5, +6, +7, +8, +10 pp lift at 12.5% baseline; zero single-shop 4-waves-in-4-weeks claim; new A9 advancement rule: lower 95% bound of post-5%-fee net profit per nudged customer > 0 AND observed lift > break-even lift +15.3 pp).
+  2. Honest Copy Status ("EN author-checked, native review pending" everywhere; KN/HI "DRAFT - UNREVIEWED BY NATIVE SPEAKER").
+  3. Plain "[BUILT]" tags, plain capability tiles on Slide 3, and explicit definition of Intention-to-Treat (ITT) on Main Slide 4.
+  4. Clean Slide A2 Q2 FY27 attribution (omits 8.8L FS customers and >50% repeat merchant loans).
 """
 import os
 import re
@@ -30,7 +29,7 @@ from pptx.oxml.xmlchemy import OxmlElement
 sys.path.insert(0, "/home/user/paytmai-vyaparvoice")
 from app.database import init_and_seed_db
 from app.engine import get_dashboard_overview
-from app.stats import simulate_dose_response_curve
+from app.stats import compute_pooled_pilot_power_table, simulate_dose_response_curve
 
 ASSET_DIR = "/home/user/scripts/v2_assets"
 OUT_DIRS = [
@@ -40,7 +39,8 @@ OUT_DIRS = [
 for d in [ASSET_DIR] + OUT_DIRS:
     os.makedirs(d, exist_ok=True)
 
-PPTX_OUT = os.path.join(OUT_DIRS[0], "PaytmAI_VyaparVoice_v2.pptx")
+PPTX_V21_OUT = os.path.join(OUT_DIRS[0], "PaytmAI_VyaparVoice_v2_1.pptx")
+PPTX_V2_OUT = os.path.join(OUT_DIRS[0], "PaytmAI_VyaparVoice_v2.pptx")
 LIVE_URL = "https://paytmai-vyaparvoice.onrender.com"
 
 # Palette
@@ -77,7 +77,11 @@ def assert_clean_text(text: str) -> str:
     if EMOJI_RE.search(text):
         raise ValueError(f"Banned emoji found in text: {text!r}")
     if text.lstrip().startswith("* "):
-        raise ValueError(f"Literal asterisk bullet forbidden in v2: {text!r}")
+        raise ValueError(f"Literal asterisk bullet forbidden in v2.1: {text!r}")
+    if "EN reviewed" in text:
+        raise ValueError(f"Forbidden phrase 'EN reviewed' found in text: {text!r}")
+    if "[BUILT IN STAGE 1]" in text:
+        raise ValueError(f"Use '[BUILT]' instead of '[BUILT IN STAGE 1]': {text!r}")
     return text
 
 
@@ -142,7 +146,7 @@ def generate_v2_assets():
     plt.savefig(c1, dpi=260)
     plt.close(fig)
 
-    # Chart 2: Simulated ITT Holdout + Wilson 95% CIs (noting 12 = Rs 300 cap)
+    # Chart 2: Simulated ITT Holdout + Wilson 95% CIs
     fig, ax = plt.subplots(figsize=(5.0, 3.35), dpi=260)
     fig.patch.set_facecolor("#FFFFFF")
     ax.set_facecolor("#FFFFFF")
@@ -232,7 +236,37 @@ def generate_v2_assets():
     plt.savefig(c4, dpi=260)
     plt.close(fig)
 
-    return qr_path, c1, c2, c3, c4
+    # Chart 5: Pooled 50-Shop Stratified Power Curve (Appendix A7)
+    ptbl = compute_pooled_pilot_power_table(
+        n_shops=50, control_per_shop=8, treatment_per_shop=32, p_control=0.125, lifts_pp=[4, 5, 6, 7, 8, 10]
+    )
+    xlifts = [f"+{int(r['lift_pp'])} pp\n({r['p_treatment']*100:.1f}%)" for r in ptbl["rows"]]
+    ypwr = [r["power_pct"] for r in ptbl["rows"]]
+    bar_cols = ["#64748B" if p < 80.0 else "#059669" for p in ypwr]
+
+    fig, ax = plt.subplots(figsize=(5.0, 3.35), dpi=260)
+    fig.patch.set_facecolor("#FFFFFF")
+    ax.set_facecolor("#FFFFFF")
+    x5 = np.arange(len(xlifts))
+    ax.bar(x5, ypwr, width=0.52, color=bar_cols, zorder=3)
+    ax.axhline(80.0, color="#B45309", linestyle="--", lw=1.4, zorder=4, label="80% Power Target (alpha=0.05)")
+    for xi, pv in zip(x5, ypwr):
+        ax.text(xi, pv + 2.2, f"{pv:.1f}%", ha="center", va="bottom", fontsize=8.2, fontweight="bold", color="#0F172A")
+    ax.set_xticks(x5)
+    ax.set_xticklabels(xlifts, fontsize=7.8, fontweight="bold", color="#1E293B")
+    ax.set_ylabel("Two-Sided Power (%)", fontsize=9.2, fontweight="bold", color="#1E293B")
+    ax.set_ylim(0, 112)
+    ax.set_title("50-Shop Pooled Power (400C + 1,600T, 12.5% Base)", fontsize=9.8, fontweight="bold", color="#002970", pad=8)
+    ax.grid(axis="y", linestyle="--", alpha=0.45, color="#CBD5E1", zorder=0)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.legend(loc="lower right", fontsize=7.8, frameon=True, facecolor="#F8FAFC")
+    plt.tight_layout()
+    c5 = os.path.join(ASSET_DIR, "c5_pooled_power.png")
+    plt.savefig(c5, dpi=260)
+    plt.close(fig)
+
+    return qr_path, c1, c2, c3, c4, c5
 
 
 def set_bg(slide, color):
@@ -343,7 +377,7 @@ def add_chrome(slide, tag_text: str, title: str, page_label: str, is_appendix: b
     add_box(slide, 0.55, 7.08, 12.23, 0.015, BORDER, rounded=False)
     add_text(
         slide, 0.55, 7.13, 9.2, 0.26,
-        "Paytm Build for India AI Hackathon (Bengaluru Track 1) | Traced to results/slide_numbers.md (Paytm Q2 FY27)",
+        "Paytm Build for India AI Hackathon (Bengaluru Track 1) | Traced to results/slide_numbers.md (Deck v2.1)",
         size=8.8, color=MUTED
     )
     add_text(slide, 10.4, 7.13, 2.38, 0.26, page_label, size=8.8, bold=True, color=NAVY, align=PP_ALIGN.RIGHT)
@@ -354,8 +388,8 @@ def set_notes(slide, notes_text: str):
     slide.notes_slide.notes_text_frame.text = notes_text
 
 
-def build_deck_v2():
-    qr_path, c1, c2, c3, c4 = generate_v2_assets()
+def build_deck_v2_1():
+    qr_path, c1, c2, c3, c4, c5 = generate_v2_assets()
     prs = Presentation()
     prs.slide_width = Inches(13.333)
     prs.slide_height = Inches(7.5)
@@ -419,10 +453,10 @@ def build_deck_v2():
     add_bullet_list(
         m2, 0.72, 1.44, 7.50, 5.25,
         [
-            ("Plain Voice Brief", "Speaks 8:30 PM brief in English, Kannada, or Hindi (KN/HI marked Draft; zero jargon)."),
+            ("Plain Voice Brief", "EN author-checked, native review pending; KN/HI draft; zero jargon."),
             ("Synthetic Store Slice", "Sri Krishna Darshini (240 payers, 1,613 scans); flags 48 regulars silent 16 to 38d."),
-            ("Policy & ITT Split", "Filters to 40 DPDP & 14d-cooldown clear buyers: 32 nudged vs 8 silent control."),
-            ("Passes vs Spend Stop", "All 32 nudged get Rs 25 pass (Rs 800 face); hard stop at Rs 300 spend (>10% risk alert)."),
+            ("Policy & 80/20 Split", "Filters to 40 DPDP & 14d-cooldown clear buyers: 32 nudged vs 8 silent control."),
+            ("Passes vs Spend Stop", "All 32 nudged get Rs 25 pass (valid while budget lasts); hard stop at Rs 300 (>10% alert)."),
             ("Zero LLM Math", "SQLite computes every rupee and cap; per-visitor cloud sandboxes block paid calls."),
         ],
         font_pt=18.0, space_pt=11
@@ -437,22 +471,21 @@ def build_deck_v2():
         "https://paytmai-vyaparvoice\n.onrender.com",
         size=13.0, bold=True, color=WHITE, align=PP_ALIGN.CENTER
     )
-    add_box(m2, 8.78, 5.08, 3.80, 1.56, NAVY, border_rgb=CYAN, border_pt=1.0)
+    add_box(m2, 8.78, 5.06, 3.80, 1.60, NAVY, border_rgb=CYAN, border_pt=1.0)
     add_text(
-        m2, 8.92, 5.18, 3.52, 1.38,
-        "Cloud Safeguards Active:\nIsolated SQLite session per visitor.\nZero paid API calls on public URL.\nSwitch Merchant vs Technical View.",
-        size=11.5, color=CYAN_SOFT, align=PP_ALIGN.CENTER
+        m2, 8.90, 5.15, 3.56, 1.44,
+        "Cloud Safeguards Active:\nIsolated SQLite per visitor (30m TTL,\n64-session LRU, 2MB/32MB disk caps).\nZero paid API calls on public URL.",
+        size=11.0, color=CYAN_SOFT, align=PP_ALIGN.CENTER
     )
 
     set_notes(
         m2,
-        "At 8:30 PM closing time, VyaparVoice delivers a plain-language brief with zero statistical jargon. "
-        "On our seeded synthetic ledger of 240 payers and 1,613 scans, SQL filters 48 lapsed regulars down to 40 eligible buyers, holding 8 in silent control and issuing Rs 25 passes to all 32 nudged buyers, with an atomic Rs 300 hard stop on actual cashback spend and an upfront warning when cap-overrun risk exceeds 10 percent. "
-        "Judges can scan the QR code to open our live Render deployment, where each visitor receives an isolated SQLite session."
+        "At 8:30 PM closing time, VyaparVoice delivers a plain-language brief with zero statistical jargon; English copy is author-checked with native review pending, while Kannada and Hindi are marked unreviewed drafts. "
+        "On our seeded synthetic ledger of 240 payers and 1,613 scans, SQL filters 48 lapsed regulars down to 40 eligible buyers, holding 8 in silent control and issuing Rs 25 passes to all 32 nudged buyers with terms valid while the shop's offer budget lasts, backed by an atomic Rs 300 hard spend stop and an upfront warning when cap-overrun risk exceeds 10 percent."
     )
 
     # =========================================================================
-    # MAIN SLIDE 3 / 5: ARCHITECTURE (BUILT VS PENDING VS PLANNED)
+    # MAIN SLIDE 3 / 5: ARCHITECTURE ([BUILT] VS [PENDING] VS [PLANNED])
     # =========================================================================
     m3 = prs.slides.add_slide(blank)
     set_bg(m3, BG_LIGHT)
@@ -467,19 +500,19 @@ def build_deck_v2():
     add_bullet_list(
         m3, 0.78, 1.46, 11.75, 4.30,
         [
-            ("[BUILT IN STAGE 1] ITT Stats & Atomic Cap Engine", "Fisher exact p, Wilson 95% CIs, allocation-ratio power, atomic BEGIN IMMEDIATE spend stop, 25-thread concurrency test."),
-            ("[BUILT IN STAGE 1] Merchant Copy & Isolation", "Merchant vs Technical View, banned-jargon lint, Evidence Grades A/B/C, per-visitor SQLite sandboxes, ADMIN_TOKEN gate."),
+            ("[BUILT] ITT Stats & Atomic Cap Engine", "Fisher exact p, Wilson 95% CIs, pooled/unequal power math, atomic BEGIN IMMEDIATE spend stop, 25-thread concurrency test."),
+            ("[BUILT] Merchant Copy & Cloud Sandboxes", "Merchant vs Technical View, banned-jargon lint, Evidence Grades A/B/C, TTL/LRU/byte-bounded visitor SQLite sessions."),
             ("[BUILT KEYLESS / PENDING LIVE] Sarvam & Caps", "Keyless Bulbul TTS + Saaras STT adapter, mock-server selftest, SHA-256 audio cache, 15%/15% (30% max) fail-closed credit ledger."),
             ("[PRODUCTION PLAN] Paytm Ecosystem Hooks", "Paytm QR dynamic coupon settlement, 4G Soundbox push audio, WhatsApp Cloud supplier POs, Postgres/Redis."),
         ],
         font_pt=18.2, space_pt=13
     )
-    gates_m3 = [
-        ("make preflight : PASS", "Zero leaked keys, render.yaml untouched, zero formatting errors, 21/21 QA battery green.", EMERALD, EMER_SOFT),
-        ("25-Thread Lock : PASS", "Simultaneous QR redemptions stop at exact Rs 300 cap; ITT lift invariant when cap binds.", NAVY, CYAN_SOFT),
-        ("Cloud Sandbox : PASS", "PUBLIC_DEPLOY=true blocks paid APIs; concurrent visitors get isolated SQLite files.", AMBER, AMB_SOFT),
+    cap_tiles_m3 = [
+        ("Automated Release Guards", "Pre-release checks scan for secret keys, banned merchant jargon, and 21 QA assertions.", EMERALD, EMER_SOFT),
+        ("Atomic Spend-Stop Lock", "SQLite write locking stops simultaneous QR scans at the exact merchant rupee cap.", NAVY, CYAN_SOFT),
+        ("Bounded Visitor Sandboxes", "Per-visitor SQLite files enforce 30-min TTL, 64-session LRU eviction, and 32 MB disk cap.", AMBER, AMB_SOFT),
     ]
-    for gi, (gh, gb, gcol, gbg) in enumerate(gates_m3):
+    for gi, (gh, gb, gcol, gbg) in enumerate(cap_tiles_m3):
         gx = 0.55 + gi * 4.14
         add_box(m3, gx, 6.04, 3.94, 0.82, gbg, border_rgb=gcol, border_pt=1.1)
         add_text(m3, gx + 0.14, 6.10, 3.66, 0.24, gh, size=11.0, bold=True, color=gcol)
@@ -488,11 +521,11 @@ def build_deck_v2():
     set_notes(
         m3,
         "Slide 3 separates verified code running in our repository today from pending live sponsor keys and production integrations. "
-        "Stage 1 added exact Fisher and Wilson tests, unequal-allocation power math, atomic thread-safe spend stopping, banned-jargon copy linting, Evidence Grades A/B/C, visitor session isolation, and a mock-tested keyless Sarvam adapter capped at 30 percent of credits."
+        "Built modules include exact Fisher and Wilson statistics, pooled and unequal-allocation power calculators, atomic thread-safe spend stopping, banned-jargon copy linting, bounded per-visitor SQLite sandboxes, and a mock-tested keyless Sarvam adapter capped at 30 percent of credits."
     )
 
     # =========================================================================
-    # MAIN SLIDE 4 / 5: ITT PROOF, 80/20 POWER & FEE-RECONCILED PROFIT
+    # MAIN SLIDE 4 / 5: ITT DEFINITION, PROOF & FEE-RECONCILED PROFIT
     # =========================================================================
     m4 = prs.slides.add_slide(blank)
     set_bg(m4, BG_LIGHT)
@@ -503,89 +536,87 @@ def build_deck_v2():
         "Main 4 / 5 (Slide 4 / 16)",
     )
 
-    add_box(m4, 0.55, 1.30, 7.25, 4.78, WHITE, border_rgb=BORDER, border_pt=1.0)
+    add_box(m4, 0.55, 1.30, 7.25, 4.74, WHITE, border_rgb=BORDER, border_pt=1.0)
     add_bullet_list(
-        m4, 0.72, 1.42, 6.92, 4.58,
+        m4, 0.72, 1.42, 6.92, 4.54,
         [
             ("Simulated ITT Return", "12/32 nudged (37.5%) vs 1/8 control (12.5%); Fisher p = 0.24; simulated 12 equals the Rs 300 cap (0 refused)."),
-            ("80% Power Target", "At 80/20 (40/wave): ~31 control + ~124 nudged (155 total, ~4 waves), or 46/arm at 50/50 split."),
+            ("Sample Requirement", "Single wave (N=40) is directional; 25 pp lift needs 31C + 124T = 155 (~4 store-waves) or 46/arm at 50/50."),
             ("Sales vs Subsidy", "8 net visits = Rs 1,740 sales (5.8x sales/promo); 4 organic returners absorb Rs 100 cashback."),
             ("Merchant Net Profit", "At 30% margin: Rs 522 GP (1.74x); +Rs 222 pre-fee (+74%), +Rs 91.50 after Rs 130.50 fee."),
             ("5% Fee Base", "Rs 130.50 = 5% of all Rs 2,610 redeemed bills (12 bills, including organic returners)."),
         ],
         font_pt=18.0, space_pt=9
     )
-    add_box(m4, 0.55, 6.20, 7.25, 0.65, CYAN_SOFT, border_rgb=CYAN_DARK, border_pt=1.0)
+    add_box(m4, 0.55, 6.14, 7.25, 0.72, CYAN_SOFT, border_rgb=CYAN_DARK, border_pt=1.0)
     add_text(
-        m4, 0.72, 6.32, 6.92, 0.42,
-        "ITT Invariance Verified: Outcomes are drawn before applying the spend stop, so holdout lift stays unchanged if the cap binds.",
-        size=12.5, bold=True, color=NAVY
+        m4, 0.70, 6.21, 6.96, 0.58,
+        "Intention-to-Treat (ITT) Definition: Compares all 32 assigned nudged buyers vs all 8 assigned silent controls regardless of redemption or cap stops, preventing selection bias and keeping lift invariant if the cap binds.",
+        size=11.0, bold=True, color=NAVY
     )
 
     add_box(m4, 8.00, 1.30, 4.78, 3.52, WHITE, border_rgb=BORDER, border_pt=1.0)
     m4.shapes.add_picture(c2, Inches(8.08), Inches(1.38), width=Inches(4.62))
 
-    add_box(m4, 8.00, 4.96, 4.78, 1.89, AMB_SOFT, border_rgb=AMBER, border_pt=1.2)
+    add_box(m4, 8.00, 4.96, 4.78, 1.90, AMB_SOFT, border_rgb=AMBER, border_pt=1.2)
     add_text(
-        m4, 8.16, 5.08, 4.46, 1.66,
-        "CAP & BREAK-EVEN DISCLOSURE (SIMULATED)\nSimulated 12 returners = 12 x Rs 25 = Rs 300 hard spend stop (42.2% overrun risk at p=37.5% triggers >10% alert; suggests Rs 400 cap).\nBreak-even shop margin: 17.2% pre-fee | 24.7% post-fee.",
-        size=11.8, bold=True, color=INK
+        m4, 8.16, 5.06, 4.46, 1.72,
+        "CAP & BREAK-EVEN DISCLOSURE (SIMULATED)\nSimulated 12 returners = 12 x Rs 25 = Rs 300 hard spend stop (42.2% overrun risk at p=37.5% triggers >10% alert; suggests Rs 400 cap).\nBreak-even margin: 17.2% pre-fee | 24.7% post-fee.\nBreak-even lift (30% margin): +7.8 pp pre | +15.3 pp post.",
+        size=11.0, bold=True, color=INK
     )
 
     set_notes(
         m4,
-        "Slide 4 presents our Intention-to-Treat holdout and profit waterfall. "
-        "12 of 32 nudged buyers return versus 1 of 8 in control, with Fisher exact p equals 0.24, where the simulated 12 returning buyers equals the 12-redemption Rs 300 cap. "
-        "At our 80/20 allocation of 40 buyers per wave, 80 percent power requires about 31 control and 124 nudged buyers, or 155 total across roughly 4 waves, compared to 46 per arm at a 50/50 split. "
-        "At a 30 percent store margin, Rs 522 gross profit minus Rs 300 cashback leaves Rs 222 pre-fee, and Rs 91.50 after Paytm's Rs 130.50 5 percent fee levied on all Rs 2,610 redeemed bills including organic returners."
+        "Slide 4 defines Intention-to-Treat: we compare every buyer assigned to receive an offer against every buyer assigned to silent control regardless of whether they redeem or hit the spend stop. "
+        "In our simulated wave, 12 of 32 nudged buyers return versus 1 of 8 in control, with Fisher exact p equals 0.24, where the simulated 12 returning buyers equals the 12-redemption Rs 300 cap. "
+        "At a 30 percent store margin, Rs 522 gross profit minus Rs 300 cashback leaves Rs 222 pre-fee, and Rs 91.50 after Paytm's Rs 130.50 5 percent fee levied on all Rs 2,610 redeemed bills including organic returners; post-fee break-even lift is plus 15.3 percentage points."
     )
 
     # =========================================================================
-    # MAIN SLIDE 5 / 5: Q2 FY27 ARR CASES, FEE RECONCILIATION & PILOT
+    # MAIN SLIDE 5 / 5: Q2 FY27 ARR CASES & POOLED 50-SHOP PILOT
     # =========================================================================
     m5 = prs.slides.add_slide(blank)
     set_bg(m5, BG_LIGHT)
     add_chrome(
         m5,
-        "MAIN 5 / 5 : BUSINESS MODEL & PILOT PLAN",
-        "Three Revenue Cases (5% of 1.64 Cr Q2 Base = 8.20L Shops)",
+        "MAIN 5 / 5 : BUSINESS MODEL & POOLED PILOT",
+        "Three Revenue Cases (8.20L Shops) & 50-Shop Pooled Pilot",
         "Main 5 / 5 (Slide 5 / 16)",
     )
 
-    add_box(m5, 0.55, 1.30, 7.25, 4.78, WHITE, border_rgb=BORDER, border_pt=1.0)
+    add_box(m5, 0.55, 1.30, 7.25, 4.74, WHITE, border_rgb=BORDER, border_pt=1.0)
     add_bullet_list(
-        m5, 0.72, 1.42, 6.92, 4.58,
+        m5, 0.72, 1.42, 6.92, 4.54,
         [
             ("Case C (SaaS Only)", "Rs 79/mo Soundbox add-on x 8.20L shops = Rs 77.7 Cr ARR (zero promo/credit fees)."),
             ("Case B (Core Excl. Credit)", "+Rs 102/mo steady promo fee (~0.78 waves/mo, Rs 2,040 redeemed bills) = Rs 178.1 Cr ARR."),
             ("Case A (Full Base)", "+Rs 77/mo credit referral (~7% loan pen. Assumption) = Rs 253.9 Cr ARR."),
             ("Unit COGS & Margin", "Rs 48/mo cached (Rs 5 AI + Rs 43 msg; 81.4% margin) vs Rs 71.80 uncached TTS (72.2%)."),
-            ("Powered 4-Week Pilot", "50 Bengaluru shops; 4 waves/shop (~160 >= 155 needed at 80/20) + native KN/HI teach-back."),
+            ("Pooled 50-Shop Pilot", "50 shops x 1 wave (~400C + ~1,600T, stratified by shop): 83.3% power at +6 pp, 97.2% at +8 pp."),
         ],
         font_pt=18.0, space_pt=9
     )
-    add_box(m5, 0.55, 6.20, 7.25, 0.65, EMER_SOFT, border_rgb=EMERALD, border_pt=1.0)
+    add_box(m5, 0.55, 6.14, 7.25, 0.72, EMER_SOFT, border_rgb=EMERALD, border_pt=1.0)
     add_text(
-        m5, 0.72, 6.32, 6.92, 0.42,
-        "Fee Reconciliation: Single backlog wave = Rs 130.50 (5% of Rs 2,610); steady state = Rs 102/mo (~0.78 waves/mo as 14d pool refills).",
-        size=12.0, bold=True, color=INK
+        m5, 0.70, 6.22, 6.96, 0.56,
+        "Why Pool 50 Shops (Not 4 Waves/Shop): 14d cooldown & ~0.78 waves/mo replenishment preclude 4 weekly waves in 1 shop; pooling 50x1 gives 50.3%/68.8%/83.3%/92.5%/97.2%/99.8% power at +4/+5/+6/+7/+8/+10 pp.",
+        size=10.8, bold=True, color=INK
     )
 
     add_box(m5, 8.00, 1.30, 4.78, 3.52, WHITE, border_rgb=BORDER, border_pt=1.0)
     m5.shapes.add_picture(c3, Inches(8.08), Inches(1.38), width=Inches(4.62))
 
-    add_box(m5, 8.00, 4.96, 4.78, 1.89, NAVY_DARK, border_rgb=CYAN, border_pt=1.2)
+    add_box(m5, 8.00, 4.96, 4.78, 1.90, NAVY_DARK, border_rgb=CYAN, border_pt=1.2)
     add_text(
         m5, 8.16, 5.08, 4.46, 1.66,
-        "Q2 FY27 BASE & TTS CACHE NOTE\n5% of 1.64 Cr subscription merchants (Reported: Paytm Q2 FY27, 26 Oct 2026) = 8.20L shops.\nBulbul v3 = Rs 27/mo uncached (9k chars); ~88% phrase cache hit yields Rs 3.20/mo TTS.",
-        size=11.8, bold=True, color=WHITE
+        "Q2 FY27 BASE & FEE RECONCILIATION\n5% of 1.64 Cr subscription merchants (Reported: Paytm Q2 FY27, 26 Oct 2026) = 8.20L shops.\n1 backlog wave = Rs 130.50 fee; steady state (~0.78 waves/mo) = Rs 102/mo.",
+        size=11.5, bold=True, color=WHITE
     )
 
     set_notes(
         m5,
-        "Slide 5 updates our scale model to Paytm's Q2 FY27 base of 1.64 crore subscription-paying merchants: 5 percent adoption equals 8.20 lakh shops. "
-        "SaaS alone at Rs 79 per month yields Rs 77.7 crore ARR; adding steady-state promo fees of Rs 102 per month, corresponding to 0.78 full waves per month or Rs 2,040 in total redeemed bills including organic returners, reaches Rs 178.1 crore ARR with zero lending assumptions; adding credit referrals reaches Rs 253.9 crore ARR. "
-        "Pooling 4 weekly 80/20 waves per pilot store reaches 160 observations, exceeding the 155 required for 80 percent power."
+        "Slide 5 updates our scale model to Paytm's Q2 FY27 base of 1.64 crore subscription-paying merchants: 5 percent adoption equals 8.20 lakh shops, yielding Rs 77.7 crore ARR on SaaS alone, Rs 178.1 crore adding steady-state promo fees of Rs 102 per month at 0.78 waves per month, and Rs 253.9 crore in our full base case. "
+        "Rather than claiming a single store runs four full waves in four weeks, which would conflict with our 14-day cooldown and 0.78 waves per month replenishment rate, our pilot pools one wave across 50 shops for roughly 400 control and 1,600 nudged customers stratified by shop, achieving 83.3 percent power at a 6-point lift and 97.2 percent at an 8-point lift."
     )
 
     # =========================================================================
@@ -606,21 +637,21 @@ def build_deck_v2():
         size=13.0, color=RGBColor(0xCB, 0xD5, 0xE1)
     )
     cards_a1 = [
-        ("01 : Plain Voice + Button", "EN reviewed + KN/HI draft templates; banned-jargon lint"),
+        ("01 : Plain Voice + Button", "EN author-checked, native review pending; KN/HI draft"),
         ("02 : ITT Cap-vs-Holdout", "All 32 nudged get passes; Rs 300 hard spend stop & >10% risk alert"),
-        ("03 : Profit & Power Audit", "+Rs 222 pre-fee / +Rs 91.50 post-fee; 31C+124T (80/20) for 80% power"),
+        ("03 : 50-Shop Pooled Pilot", "+Rs 91.50 post-fee; 400C+1,600T gives 83.3% power at +6 pp lift"),
     ]
     for i, (ch, cb) in enumerate(cards_a1):
         bx = 0.65 + i * 2.75
         add_box(a1, bx, 4.15, 2.60, 1.18, NAVY, border_rgb=CYAN, border_pt=1.0)
         add_text(a1, bx + 0.12, 4.25, 2.36, 0.30, ch, size=10.8, bold=True, color=WHITE)
-        add_text(a1, bx + 0.12, 4.58, 2.36, 0.62, cb, size=9.8, color=RGBColor(0xBA, 0xE6, 0xFD))
+        add_text(a1, bx + 0.12, 4.58, 2.36, 0.62, cb, size=9.6, color=RGBColor(0xBA, 0xE6, 0xFD))
     add_box(a1, 0.65, 5.65, 12.0, 1.10, RGBColor(0x00, 0x12, 0x35), border_rgb=CYAN, border_pt=1.0)
     add_text(a1, 0.85, 5.80, 11.5, 0.35, "TEAM: SemiTechnical | Member: Kevin Joseph | Live: paytmai-vyaparvoice.onrender.com", size=13.5, bold=True, color=WHITE)
-    add_text(a1, 0.85, 6.22, 11.5, 0.35, "Deck v2 Status: Stage 1 verified (stage1-ok); all Q2 FY27, ITT cap, power, and fee reconciliations applied.", size=11.5, color=CYAN)
-    set_notes(a1, "Appendix A1 summarizes the updated Q2 FY27 attribution, Intention-to-Treat cap accounting, and Stage 1 verification status.")
+    add_text(a1, 0.85, 6.22, 11.5, 0.35, "Deck v2.1 Status: Stage 1 verified (stage1-ok); pooled 50-shop power, ITT definition, and copy disclosures applied.", size=11.5, color=CYAN)
+    set_notes(a1, "Appendix A1 summarizes our Q2 FY27 attribution, copy review status, Intention-to-Treat cap accounting, and pooled 50-shop pilot design.")
 
-    # A2 (Slide 7 / 16): Detailed Problem & Q2 FY27 Sources
+    # A2 (Slide 7 / 16): Detailed Problem & Clean Q2 FY27 Sources (Item A.4)
     a2 = prs.slides.add_slide(blank)
     set_bg(a2, BG_LIGHT)
     add_chrome(a2, "APPENDIX A2 : PROBLEM & Q2 FY27 SOURCES", "Problem Details, Primary Paytm Q2 FY27 Sources & Synthetic Persona", "Appendix A2 (Slide 7 / 16)", True)
@@ -638,14 +669,14 @@ def build_deck_v2():
     a2.shapes.add_picture(c1, Inches(7.54), Inches(1.46), width=Inches(4.90))
     add_box(a2, 7.20, 4.98, 5.58, 1.92, NAVY_DARK, border_rgb=CYAN)
     add_bullet_list(
-        a2, 7.34, 5.06, 5.30, 1.78,
+        a2, 7.34, 5.08, 5.30, 1.74,
         [
-            ("Reported (Paytm Q2 FY27, 26 Oct 2026)", "1.64 Cr subscription merchants, Rs 7.1L Cr GMV, Rs 2,648 Cr rev, 8.8L FS customers, >50% repeat merchant loans."),
+            ("Reported (Paytm Q2 FY27, 26 Oct 2026)", "1.64 Cr subscription-paying merchants, Rs 7.1L Cr merchant GMV, Rs 2,648 Cr operating revenue."),
             ("Assumptions vs Synthetic", "~7% merchant loan pen. & Rs 90-100/mo Soundbox fee (Assumptions); Ramesh Rao store is synthetic (917 scans/30d)."),
         ],
-        font_pt=10.5, space_pt=6, lead_color=CYAN, body_color=WHITE
+        font_pt=10.6, space_pt=7, lead_color=CYAN, body_color=WHITE
     )
-    set_notes(a2, "Appendix A2 cites Paytm's 26 October 2026 Q2 FY27 earnings release directly and tags ~7 percent merchant loan penetration and Rs 90 to 100 monthly Soundbox rental as assumptions.")
+    set_notes(a2, "Appendix A2 cites Paytm's 26 October 2026 Q2 FY27 earnings release for merchant subscriptions, GMV, and operating revenue, while tagging ~7 percent merchant loan penetration and Rs 90 to 100 monthly Soundbox rental as assumptions.")
 
     # A3 (Slide 8 / 16): 3-Pillar Mapping
     a3 = prs.slides.add_slide(blank)
@@ -677,44 +708,44 @@ def build_deck_v2():
         add_text(a3, px + 0.18, 1.56, 3.58, 0.28, ptag, size=10.5, bold=True, color=NAVY)
         add_text(a3, px + 0.18, 1.86, 3.58, 0.36, phead, size=14.5, bold=True, color=INK)
         add_bullet_list(a3, px + 0.14, 2.32, 3.66, 4.35, pbul, font_pt=12.0, space_pt=10)
-    set_notes(a3, "Appendix A3 maps built Stage 1 modules, simulated MVP flows, and planned Paytm production hooks across Track 1's three pillars.")
+    set_notes(a3, "Appendix A3 maps built modules, simulated MVP flows, and planned Paytm production hooks across Track 1's three pillars.")
 
-    # A4 (Slide 9 / 16): REWRITTEN PER DECISION 1 (ITT CAP-VS-HOLDOUT WORKFLOW)
+    # A4 (Slide 9 / 16): ITT CAP-VS-HOLDOUT WORKFLOW & LATE ARRIVAL SAFEGUARDS
     a4 = prs.slides.add_slide(blank)
     set_bg(a4, BG_LIGHT)
-    add_chrome(a4, "APPENDIX A4 : ITT WORKFLOW & SPEND STOP", "Intention-to-Treat Cap-vs-Holdout Design (Decision 1)", "Appendix A4 (Slide 9 / 16)", True)
+    add_chrome(a4, "APPENDIX A4 : ITT WORKFLOW & SPEND STOP", "Intention-to-Treat Cap-vs-Holdout & Late-Arrival Handling", "Appendix A4 (Slide 9 / 16)", True)
     steps_a4 = [
-        ("STEP 1 : PASS ISSUANCE", "Filter 48 -> 40 eligible (80/20: 32 nudged, 8 control). Issue Rs 25 passes to ALL 32 nudged buyers (Rs 800 face exposure); never restrict reach to 12."),
-        ("STEP 2 : >10% RISK ALERT", "At approval, compute P(Binomial(32, p) > 12). At p=37.5%, overrun risk is 42.2% (>10% threshold): warn merchant and suggest Rs 400 cap (<=10% risk)."),
+        ("STEP 1 : PASS ISSUANCE", "Filter 48 -> 40 eligible (80/20: 32 nudged, 8 control). Issue Rs 25 passes ('valid while shop offer budget lasts') to ALL 32 nudged buyers (Rs 800 face)."),
+        ("STEP 2 : >10% & 80% ALERTS", "At approval, P(Binomial(32, 0.375) > 12) = 42.2% (>10% alert -> suggests Rs 400 cap). Live at 80% cap (10/12 paid), prompt merchant 1-tap top-up."),
         ("STEP 3 : INDEPENDENT DRAW", "48h simulator draws customer return visits independently of max_budget first, then applies atomic BEGIN IMMEDIATE stop at Rs 300 (12 paid)."),
-        ("STEP 4 : ITT EVALUATION", "Record cap_reached & refused_redemptions (12 = cap, 0 refused in base run; 6 refused at Rs 150 cap). Analyse ITT (32 vs 8): holdout lift is unchanged when cap binds."),
+        ("STEP 4 : ITT & DECLINE LOG", "After cap, normal UPI clears, cashback withholds, refused_redemptions + audit_log increment (brand risk tracked). ITT (32 vs 8) stays unchanged."),
     ]
     for i, (sh, sb) in enumerate(steps_a4):
         sx = 0.55 + i * 3.10
         add_box(a4, sx, 1.42, 2.92, 3.22, WHITE, border_rgb=NAVY, border_pt=1.2)
-        add_text(a4, sx + 0.14, 1.56, 2.64, 0.36, sh, size=11.2, bold=True, color=NAVY)
-        add_text(a4, sx + 0.14, 1.98, 2.64, 2.52, sb, size=11.0, color=INK)
+        add_text(a4, sx + 0.14, 1.56, 2.64, 0.36, sh, size=11.0, bold=True, color=NAVY)
+        add_text(a4, sx + 0.14, 1.98, 2.64, 2.52, sb, size=10.8, color=INK)
     add_box(a4, 0.55, 4.82, 12.23, 2.04, AMB_SOFT, border_rgb=AMBER, border_pt=1.2)
-    add_text(a4, 0.76, 4.94, 11.80, 0.32, "DISCLOSED TRADE-OFF & VERIFIED INVARIANCE TESTS", size=12.5, bold=True, color=AMBER)
+    add_text(a4, 0.76, 4.94, 11.80, 0.32, "DISCLOSED BRAND RISK & VERIFIED INVARIANCE TESTS", size=12.5, bold=True, color=AMBER)
     add_bullet_list(
         a4, 0.72, 5.28, 11.85, 1.50,
         [
-            ("Face Exposure vs Hard Spend Stop", "Issuing 32 passes creates Rs 800 face exposure while guaranteeing actual merchant spend stops at Rs 300; late redeemers after #12 are declined and logged in refused_redemptions."),
+            ("Post-Cap Customer Experience & Brand Risk", "Pass terms state 'valid while shop offer budget lasts'; declining a 13th regular still risks counter disappointment, so overrun alerts, 80%-cap top-up prompts, and logged declines are mandatory."),
             ("Automated Concurrency & ITT Tests", "25-thread simultaneous scan test verifies budget_spent == Rs 300 (12 paid, 13 refused); multi-seed test proves ITT holdout comparison is identical whether cap is Rs 800 or Rs 100."),
         ],
-        font_pt=11.4, space_pt=6
+        font_pt=11.2, space_pt=6
     )
-    set_notes(a4, "Appendix A4 documents our Intention-to-Treat cap-versus-holdout architecture: all 32 nudged buyers receive passes, overrun risk above 10 percent triggers a pre-approval warning and cap suggestion, outcomes are drawn independently before applying the atomic spend stop, and both concurrency and ITT invariance are verified by automated tests.")
+    set_notes(a4, "Appendix A4 details customer pass terms, proactive top-up prompts, decline logging, counter brand risk, and our verified concurrency and ITT invariance tests.")
 
     # A5 (Slide 10 / 16): Layered Tech Stack
     a5 = prs.slides.add_slide(blank)
     set_bg(a5, BG_LIGHT)
-    add_chrome(a5, "APPENDIX A5 : SYSTEM ARCHITECTURE", "Component Status: Built in Stage 1 vs Pending vs Production Plan", "Appendix A5 (Slide 10 / 16)", True)
+    add_chrome(a5, "APPENDIX A5 : SYSTEM ARCHITECTURE", "Component Status: Built vs Pending vs Production Plan", "Appendix A5 (Slide 10 / 16)", True)
     layers_a5 = [
         ("TOUCHPOINTS", "[BUILT] Merchant & Technical View UI", "[BUILT] 1-Tap & Voice Chip Fallback", "[PLANNED] Soundbox 4G Push & WhatsApp Cloud"),
         ("VOICE & LLM", "[BUILT] Browser Speech + SHA-256 Cache", "[PENDING LIVE] Keyless Sarvam (30% Cap)", "[STAGE 2] Keyless Groq Grounded English Q&A"),
-        ("CORE ENGINE", "[BUILT] FastAPI + Per-Visitor Sessions", "[BUILT] 5-Rule Guardrails + Jargon Lint", "[BUILT] ITT Fisher/Wilson/Power + Profit ROI"),
-        ("DATA & OPS", "[BUILT] Atomic SQLite Spend-Stop Ledger", "[BUILT] Preflight + 25-Thread Stress Test", "[PLANNED] PostgreSQL & Redis Cluster"),
+        ("CORE ENGINE", "[BUILT] FastAPI + TTL/LRU/Byte Sessions", "[BUILT] 5-Rule Guardrails + Jargon Lint", "[BUILT] ITT Fisher/Wilson/Power + Profit ROI"),
+        ("DATA & OPS", "[BUILT] Atomic SQLite Spend-Stop Ledger", "[BUILT] Automated Preflight + Stress Suite", "[PLANNED] PostgreSQL & Redis Cluster"),
     ]
     for idx, (lname, b1, b2, b3) in enumerate(layers_a5):
         ly = 1.42 + idx * 1.36
@@ -728,8 +759,8 @@ def build_deck_v2():
             bg_c = EMER_SOFT if is_built else (AMB_SOFT if is_pend else SLATE_BG)
             bd_c = EMERALD if is_built else (AMBER if is_pend else BORDER)
             add_box(a5, bx, ly + 0.14, 3.10, 0.92, bg_c, border_rgb=bd_c, border_pt=1.1)
-            add_text(a5, bx + 0.12, ly + 0.24, 2.86, 0.72, btxt, size=11.2, bold=True, color=INK)
-    set_notes(a5, "Appendix A5 reflects all Stage 1 modules built and tested today, distinguishing them from pending live Sarvam activation and production infrastructure.")
+            add_text(bx_s := slide if False else a5, bx + 0.12, ly + 0.24, 2.86, 0.72, btxt, size=11.2, bold=True, color=INK)
+    set_notes(a5, "Appendix A5 maps built modules, pending live sponsor keys, and planned production infrastructure.")
 
     # A6 (Slide 11 / 16): Positioning Table
     a6 = prs.slides.add_slide(blank)
@@ -745,7 +776,7 @@ def build_deck_v2():
         ["Customer Graph", "Incomplete manual phonebooks", "No link to payment history", "Paytm QR repeat-payer IDs (synthetic in MVP)"],
         ["Financial Safety", "Manual coupon rules", "LLM can invent unsafe offers", "Deterministic floor, atomic spend stop & >10% alert"],
         ["Privacy (DPDP)", "Raw phone lists exposed", "Prompt data leakage risk", "SQL opt-in filter; zero PII sent to voice/LLM"],
-        ["Causal Proof", "Vanity message counts", "No comparison group", "80/20 ITT holdout + Wilson CIs + net profit ROI"],
+        ["Causal Proof", "Vanity message counts", "No comparison group", "80/20 ITT holdout + 50-shop stratified pilot"],
     ]
     for c_i, h in enumerate(hdrs):
         cell = tbl.cell(0, c_i)
@@ -772,37 +803,37 @@ def build_deck_v2():
             p.font.color.rgb = INK
     set_notes(a6, "Appendix A6 compares VyaparVoice against manual dashboards and unconstrained LLM chatbots.")
 
-    # A7 (Slide 12 / 16): Pilot Targets & 80/20 Power Details
+    # A7 (Slide 12 / 16): Pooled 50-Shop Stratified Power & Pilot Targets (Item A.1)
     a7 = prs.slides.add_slide(blank)
     set_bg(a7, BG_LIGHT)
-    add_chrome(a7, "APPENDIX A7 : PILOT TARGETS & POWER", "Hypothesized Pilot Targets vs Simulated ITT Metrics", "Appendix A7 (Slide 12 / 16)", True)
-    add_box(a7, 0.55, 1.42, 6.50, 2.60, WHITE, border_rgb=BORDER)
-    add_text(a7, 0.75, 1.54, 6.10, 0.30, "MERCHANT METRICS (SIMULATED MVP & PILOT TARGETS)", size=12.0, bold=True, color=EMERALD)
+    add_chrome(a7, "APPENDIX A7 : POOLED POWER & TARGETS", "50-Shop Stratified Power (400C + 1,600T) & Pilot Targets", "Appendix A7 (Slide 12 / 16)", True)
+    add_box(a7, 0.55, 1.42, 6.50, 2.72, WHITE, border_rgb=BORDER)
+    add_text(a7, 0.75, 1.52, 6.10, 0.28, "POOLED 50-SHOP X 1-WAVE POWER (12.5% BASELINE, ALPHA=0.05)", size=11.5, bold=True, color=NAVY)
     add_bullet_list(
-        a7, 0.72, 1.88, 6.15, 2.05,
+        a7, 0.72, 1.84, 6.15, 2.22,
         [
-            ("Simulated Profit ROI", "+Rs 222 pre-fee (+74%) / +Rs 91.50 post-fee at 30% margin (simulated 12 = Rs 300 cap)."),
-            ("Repeat Visit Target", "+14% to +22% monthly repeat visits (PILOT TARGET - unvalidated)."),
-            ("Waste Reduction Target", "-18% afternoon perishable loss (PILOT TARGET - unvalidated)."),
+            ("Why Pool Stores", "50 shops x 1 wave (~400C + ~1,600T, stratified by shop); avoids claiming 1 shop runs 4 waves in 4w under a 14d cooldown (~0.78 waves/mo)."),
+            ("Exact Power Curve", "+4 pp: 50.3% | +5 pp: 68.8% | +6 pp: 83.3% | +7 pp: 92.5% | +8 pp: 97.2% | +10 pp: 99.8%."),
+            ("Break-Even Lift", "+7.8 pp pre-fee (20.3%) and +15.3 pp post-5%-fee (27.8% at 30% shop margin; >99.9% power)."),
         ],
-        font_pt=11.5, space_pt=6
+        font_pt=11.0, space_pt=5
     )
-    add_box(a7, 0.55, 4.20, 6.50, 2.65, WHITE, border_rgb=BORDER)
-    add_text(a7, 0.75, 4.32, 6.10, 0.30, "PAYTM ECOSYSTEM HYPOTHESES (PILOT TARGETS)", size=12.0, bold=True, color=NAVY)
+    add_box(a7, 0.55, 4.28, 6.50, 2.57, WHITE, border_rgb=BORDER)
+    add_text(a7, 0.75, 4.38, 6.10, 0.28, "ECOSYSTEM HYPOTHESES (UNVALIDATED PILOT TARGETS)", size=11.5, bold=True, color=EMERALD)
     add_bullet_list(
-        a7, 0.72, 4.66, 6.15, 2.05,
+        a7, 0.72, 4.70, 6.15, 2.05,
         [
-            ("Device Retention", "-35% Soundbox churn reduction (PILOT TARGET - unvalidated)."),
-            ("Store QR Share", "+12% to +15% store Paytm QR GMV lift (PILOT TARGET - unvalidated)."),
+            ("Repeat & Waste Targets", "+14% to +22% repeat visits; -18% afternoon perishable loss (PILOT TARGETS)."),
+            ("Device & QR Share", "-35% Soundbox churn; +12% to +15% store Paytm QR GMV lift (PILOT TARGETS)."),
             ("Credit Funnel", "Expand ~7% merchant loan pen. (ASSUMPTION) toward 15% (LONG-TERM TARGET)."),
         ],
-        font_pt=11.5, space_pt=6
+        font_pt=11.0, space_pt=5
     )
     add_box(a7, 7.25, 1.42, 5.53, 3.55, WHITE, border_rgb=BORDER)
-    a7.shapes.add_picture(c2, Inches(7.60), Inches(1.48), width=Inches(4.82))
+    a7.shapes.add_picture(c5, Inches(7.52), Inches(1.48), width=Inches(4.98))
     tiles_a7 = [
-        ("1.74x", "Gross Profit / Promo\n(30% Margin Sim.)", EMERALD),
-        ("31C + 124T", "80/20 Power (155, ~4w)\n46/arm at 50/50", AMBER),
+        ("83.3%", "Power at +6 pp Lift\n(400C + 1,600T)", EMERALD),
+        ("+15.3 pp", "Post-Fee Break-Even\n(+7.8 pp Pre-Fee)", AMBER),
         ("Rs 5.00", "Cached AI Cost/Mo\n(Rs 28.80 Uncached)", NAVY),
     ]
     for i, (tv, tl, tc) in enumerate(tiles_a7):
@@ -810,7 +841,7 @@ def build_deck_v2():
         add_box(a7, tx, 5.14, 1.76, 1.70, WHITE, border_rgb=tc, border_pt=1.3)
         add_text(a7, tx + 0.06, 5.30, 1.64, 0.46, tv, size=17.5, bold=True, color=tc, align=PP_ALIGN.CENTER)
         add_text(a7, tx + 0.06, 5.84, 1.64, 0.86, tl, size=9.6, bold=True, color=MUTED, align=PP_ALIGN.CENTER)
-    set_notes(a7, "Appendix A7 updates the power tile to show both 80/20 allocation (31 control and 124 nudged = 155 total, ~4 waves) and 50/50 even allocation (46 per arm), and labels ~7 percent loan penetration as an assumption.")
+    set_notes(a7, "Appendix A7 presents the exact power curve for pooling 50 shops times one wave, yielding 400 control and 1,600 nudged buyers stratified by shop: 50.3, 68.8, 83.3, 92.5, 97.2, and 99.8 percent power for 4, 5, 6, 7, 8, and 10 point lifts above a 12.5 percent baseline.")
 
     # A8 (Slide 13 / 16): Unit Economics, Q2 FY27 ARR & Fee Reconciliation
     a8 = prs.slides.add_slide(blank)
@@ -826,7 +857,7 @@ def build_deck_v2():
             ("Cached COGS (Rs 48.00/mo)", "Rs 1.80 SLM + Rs 3.20 TTS (~88% phrase cache hit on Bulbul v3) + Rs 43 msg = 81.4% gross margin."),
             ("Uncached COGS (Rs 71.80/mo)", "Uncached Bulbul v3 (9k chars at Rs 30/10k = Rs 27 TTS) = 72.2% margin (39.2% cached margin on SaaS-only)."),
         ],
-        font_pt=11.0, space_pt=8
+        font_pt=11.2, space_pt=9
     )
     add_box(a8, 7.25, 1.42, 5.53, 3.60, WHITE, border_rgb=BORDER)
     a8.shapes.add_picture(c3, Inches(7.52), Inches(1.48), width=Inches(4.98))
@@ -836,60 +867,60 @@ def build_deck_v2():
         "FEE & BASE RECONCILIATION\n1. Fee Base: 5% applies to gross QR-redeemed promo bills including organic returners.\n2. Cadence: Initial backlog wave yields Rs 130.50; steady replenishment (~0.78 waves/mo) yields Rs 102/mo.\n3. Q2 FY27 Base: 5% x 1.64 Cr = 8.20L shops.",
         size=10.6, bold=True, color=WHITE
     )
-    set_notes(a8, "Appendix A8 explicitly reconciles the Rs 130.50 single-campaign fee on Slide 4 with the Rs 102 per month steady-state promo fee assumption and updates ARR to Paytm's 1.64 crore Q2 FY27 merchant base.")
+    set_notes(a8, "Appendix A8 reconciles the Rs 130.50 single-campaign fee on Slide 4 with the Rs 102 per month steady-state promo fee assumption and updates ARR to Paytm's 1.64 crore Q2 FY27 merchant base.")
 
-    # A9 (Slide 14 / 16): Validation & Rollout Roadmap (Updated Power Wording & Real Bullets)
+    # A9 (Slide 14 / 16): Validation & Rollout Roadmap (New Pooled Pilot + New Decision Rule)
     a9 = prs.slides.add_slide(blank)
     set_bg(a9, NAVY_DARK)
     add_box(a9, 0, 0, 13.333, 0.10, AMBER, rounded=False)
-    add_text(a9, 0.65, 0.42, 7.5, 0.32, "APPENDIX A9 : VALIDATION & ROLLOUT ROADMAP", size=11.0, bold=True, color=CYAN)
-    add_text(a9, 0.65, 0.85, 12.0, 0.50, "From Stage-1 Verified MVP to Powered 50-Store Bengaluru Pilot", size=24, bold=True, color=WHITE)
+    add_text(a9, 0.65, 0.42, 7.5, 0.32, "APPENDIX A9 : VALIDATION & GO / NO-GO DECISION RULE", size=11.0, bold=True, color=CYAN)
+    add_text(a9, 0.65, 0.85, 12.0, 0.50, "From Verified Synthetic MVP to Pooled 50-Shop Stratified Pilot", size=24, bold=True, color=WHITE)
     phases_a9 = [
-        ("STAGE A : BUILT & TESTED (STAGE 1)", "Deterministic Core & Safeguards", [
-            "FastAPI + per-visitor SQLite sandboxes (240 payers, 1,613 scans)",
+        ("STAGE A : BUILT & VERIFIED", "Deterministic Core & Safeguards", [
+            "FastAPI + TTL/LRU/byte-bounded SQLite sessions (204 KB/visitor)",
             "ITT cap-vs-holdout, >10% alert, 25-thread concurrency & preflight",
             "Keyless Sarvam mock selftest (30% cap) + banned-jargon lint",
         ]),
-        ("STAGE B : DAYS 1 TO 30 PILOT", "Bengaluru 50-Store Validation", [
-            "Complete 3-merchant native Kannada & Hindi teach-back review",
-            "Pool ~4 weekly 80/20 waves (~31C + ~124T = 155; or 46/arm at 50/50)",
-            "Advance only if net merchant profit post-fee & refusals has p < 0.05",
+        ("STAGE B : POOLED 50-SHOP PILOT", "Stratified Single-Wave Validation", [
+            "3-merchant counter teach-back across EN (author-checked), KN & HI (draft)",
+            "50 shops x 1 wave (~400C + ~1,600T, stratified by shop; 83.3% power at +6 pp)",
+            "Advance only if lower 95% bound of post-5%-fee net profit/nudged > 0 AND lift > break-even (+15.3 pp)",
         ]),
         ("STAGE C : PRODUCTION SCALE", "Paytm Ecosystem Integration", [
             "Bind Paytm QR dynamic coupon settlement & 4G Soundbox push",
-            "Self-host compact intent models; keep >=88% audio phrase caching",
+            "Enforce live 80%-cap merchant top-up prompt to protect counter goodwill",
             "Scale across 8.20L target stores (Rs 77.7 Cr to Rs 253.9 Cr ARR)",
         ]),
     ]
     for i, (pt, ph, pitems) in enumerate(phases_a9):
         px = 0.65 + i * 4.10
-        add_box(a9, px, 1.65, 3.85, 3.85, NAVY, border_rgb=CYAN, border_pt=1.2)
+        add_box(a9, px, 1.65, 3.85, 3.88, NAVY, border_rgb=CYAN, border_pt=1.2)
         add_text(a9, px + 0.18, 1.80, 3.50, 0.30, pt, size=10.2, bold=True, color=CYAN)
-        add_text(a9, px + 0.18, 2.14, 3.50, 0.36, ph, size=14.2, bold=True, color=WHITE)
+        add_text(a9, px + 0.18, 2.14, 3.50, 0.36, ph, size=14.0, bold=True, color=WHITE)
         add_bullet_list(
-            a9, px + 0.14, 2.58, 3.56, 2.75, pitems,
-            font_pt=11.2, space_pt=10, lead_color=CYAN, body_color=RGBColor(0xE2, 0xE8, 0xF0)
+            a9, px + 0.14, 2.56, 3.56, 2.82, pitems,
+            font_pt=10.8, space_pt=9, lead_color=CYAN, body_color=RGBColor(0xE2, 0xE8, 0xF0)
         )
     add_box(a9, 0.65, 5.75, 12.05, 1.10, RGBColor(0x00, 0x11, 0x33), border_rgb=CYAN)
-    add_text(a9, 0.90, 5.92, 7.8, 0.36, "PaytmAI VyaparVoice | Team SemiTechnical (Kevin Joseph)", size=15.5, bold=True, color=WHITE)
-    add_text(a9, 0.90, 6.32, 11.5, 0.34, "Appendix A9 (Slide 14 / 16) | Live Demo: https://paytmai-vyaparvoice.onrender.com", size=11.5, color=CYAN)
-    set_notes(a9, "Appendix A9 specifies our exact 80/20 power sample target of about 31 control and 124 nudged buyers across 4 waves, or 46 per arm at an even split.")
+    add_text(a9, 0.90, 5.92, 9.5, 0.36, "PaytmAI VyaparVoice | Team SemiTechnical (Kevin Joseph)", size=15.5, bold=True, color=WHITE)
+    add_text(a9, 0.90, 6.32, 11.5, 0.34, "Appendix A9 (Slide 14 / 16) | Go/No-Go: Lower 95% CI of Post-5%-Fee Net Profit/Nudged > Rs 0 AND Observed Lift > Break-Even Lift", size=10.8, color=CYAN)
+    set_notes(a9, "Appendix A9 states our exact pooled 50-shop stratified pilot design and go/no-go advancement rule: advance only if the lower 95 percent bound of net profit per nudged customer after the 5 percent fee is above zero and the observed lift exceeds the break-even lift.")
 
-    # A10 (Slide 15 / 16): NEW DECK V2 SLIDE - MERCHANT SCORECARD & EVIDENCE GRADES
+    # A10 (Slide 15 / 16): MERCHANT SCORECARD & EVIDENCE GRADES
     a10 = prs.slides.add_slide(blank)
     set_bg(a10, BG_LIGHT)
-    add_chrome(a10, "APPENDIX A10 : DUAL SCORECARD & COPY LINT", "Merchant Plain-Language View vs Technical Audit View (Task 14)", "Appendix A10 (Slide 15 / 16)", True)
+    add_chrome(a10, "APPENDIX A10 : DUAL SCORECARD & COPY LINT", "Merchant Plain-Language View vs Technical Audit View", "Appendix A10 (Slide 15 / 16)", True)
     add_box(a10, 0.55, 1.40, 5.95, 3.65, WHITE, border_rgb=EMERALD, border_pt=1.3)
     add_text(a10, 0.75, 1.54, 5.55, 0.32, "MERCHANT VIEW (ZERO JARGON - LINT VERIFIED)", size=12.5, bold=True, color=EMERALD)
     add_bullet_list(
         a10, 0.72, 1.92, 5.60, 2.95,
         [
-            ("Plain Outcome Copy", "Early check (run ~4 weekly waves to be sure): 12 of 32 customers with an offer came back vs 1 of 8 without."),
+            ("Plain Outcome Copy", "Early check on one store wave (pool multiple shops to be sure): 12 of 32 with offer came back vs 1 of 8 without."),
             ("Clear Spend Stop", "Your 300 rupee limit was reached after 12 paid redemptions (0 extra declined in base run)."),
             ("Estimated Shop Profit", "At 30% shop margin, estimated profit is Rs 222 before Paytm fee (Rs 91.50 after 5% fee)."),
-            ("Draft Copy Honesty", "Kannada & Hindi carry visible [DRAFT - UNREVIEWED] badges until 3-merchant teach-back sign-off."),
+            ("Honest Copy Status", "EN author-checked, native review pending; KN & HI carry visible [DRAFT - UNREVIEWED] badges."),
         ],
-        font_pt=11.5, space_pt=8
+        font_pt=11.4, space_pt=8
     )
 
     add_box(a10, 6.75, 1.40, 6.03, 3.65, WHITE, border_rgb=NAVY, border_pt=1.3)
@@ -898,11 +929,11 @@ def build_deck_v2():
         a10, 6.92, 1.92, 5.68, 2.95,
         [
             ("ITT & Wilson 95% CIs", "37.5% [22.9%, 54.8%] vs 12.5% [2.2%, 47.1%]; two-sided Fisher exact p = 0.24."),
-            ("Power Calculator", "80/20 split (r=4): 31C + 124T = 155 (~4 waves); 50/50 split (r=1): 46C + 46T = 92."),
+            ("Pooled Pilot Power", "50 shops x 1 wave (400C + 1,600T): 50.3%, 68.8%, 83.3%, 92.5%, 97.2%, 99.8% at +4..+10 pp."),
             ("Cap Risk & Refusals", "Face exposure Rs 800; P(X > 12 | p=0.375) = 42.2% (>10% alert -> suggests Rs 400 cap)."),
             ("Banned Merchant Terms", "Automated regex blocks cohort, holdout, p-value, Fisher, Wilson, ROI, DPDP, RFM, ITT."),
         ],
-        font_pt=11.5, space_pt=8
+        font_pt=11.4, space_pt=8
     )
 
     grades_a10 = [
@@ -915,9 +946,9 @@ def build_deck_v2():
         add_box(a10, gx, 5.25, 3.94, 1.60, WHITE, border_rgb=gc, border_pt=1.3)
         add_text(a10, gx + 0.16, 5.38, 3.62, 0.30, gh, size=11.2, bold=True, color=gc)
         add_text(a10, gx + 0.16, 5.72, 3.62, 1.00, gb, size=10.8, color=INK)
-    set_notes(a10, "Appendix A10 demonstrates our Task 14 communication layer separating jargon-free merchant scorecards from full statistical audit metrics and grading every claim A, B, or C.")
+    set_notes(a10, "Appendix A10 contrasts our jargon-free merchant scorecard with Technical View and reports honest copy review status across all three languages.")
 
-    # A11 (Slide 16 / 16): NEW DECK V2 SLIDE - SPENDING CAP, DOSE-RESPONSE & BREAK-EVEN
+    # A11 (Slide 16 / 16): SPENDING CAP, DOSE-RESPONSE & BREAK-EVEN
     a11 = prs.slides.add_slide(blank)
     set_bg(a11, BG_LIGHT)
     add_chrome(a11, "APPENDIX A11 : CAP LEDGERS & DOSE-RESPONSE", "Merchant Spend Stop, Sarvam Credit Cap & Dose-Response Curve", "Appendix A11 (Slide 16 / 16)", True)
@@ -925,29 +956,31 @@ def build_deck_v2():
     add_bullet_list(
         a11, 0.72, 1.54, 6.14, 5.18,
         [
-            ("Merchant Cashback Stop", "Issues passes to all 32 nudged buyers; atomic SQLite lock stops spend at Rs 300 (12 paid) and records cap_reached + refused_redemptions."),
+            ("Merchant Cashback Stop", "Issues passes ('valid while budget lasts') to all 32 nudged buyers; SQLite lock stops spend at Rs 300 (12 paid) and logs declines."),
             ("Dose-Response Sweet Spot", "In simulation, Rs 25 peaks uncapped profit: offers of Rs 30 to 40 erode uncapped net profit via organic subsidy AND trigger 5 to 8 cap refusals under a Rs 300 stop."),
-            ("Shop Margin Break-Even", "On CMP-WINBACK-01, store breaks even at 17.2% gross margin pre-fee and 24.7% post-5%-fee; 30% darshini margin nets +Rs 91.50 post-fee."),
+            ("Margin & Lift Break-Even", "At +25 pp simulated lift, shop breaks even at 17.2% margin pre-fee (24.7% post-fee); at 30% margin, break-even lift is +7.8 pp pre-fee (+15.3 pp post-fee)."),
             ("Sarvam 30% Credit Ledger", "Separate JSON ledger caps TTS <=15% and STT <=15% (30% total of 500 sponsor credits = 150 max) and halts fail-closed on HTTP 402/429/5xx."),
             ("Public Cloud Lock", "PUBLIC_DEPLOY=true (auto-enabled on Render) hard-blocks live paid calls while SHA-256 audio cache replays at 0 credits."),
         ],
-        font_pt=12.0, space_pt=11
+        font_pt=11.6, space_pt=10
     )
     add_box(a11, 7.25, 1.40, 5.53, 3.68, WHITE, border_rgb=BORDER)
     a11.shapes.add_picture(c4, Inches(7.46), Inches(1.48), width=Inches(5.10))
     add_box(a11, 7.25, 5.24, 5.53, 1.61, NAVY_DARK, border_rgb=CYAN)
     add_text(
         a11, 7.42, 5.36, 5.18, 1.38,
-        "DUAL CAP SUMMARY (SIMULATED & BUILT)\n1. Merchant Cap: Protects shopkeeper pocket (Rs 300 stop; >10% overrun warning).\n2. Sponsor API Cap: Protects hackathon credits (<=15% TTS, <=15% STT, fail-closed).",
-        size=11.0, bold=True, color=WHITE
+        "DUAL CAP SUMMARY (SIMULATED & BUILT)\n1. Merchant Cap: Protects shopkeeper pocket (Rs 300 stop; >10% overrun warning & 80% top-up prompt).\n2. Sponsor API Cap: Protects hackathon credits (<=15% TTS, <=15% STT, fail-closed).",
+        size=10.8, bold=True, color=WHITE
     )
     set_notes(a11, "Appendix A11 shows how our simulated dose-response curve interacts with the Rs 300 spend stop and contrasts the merchant rupee cap against our separate 30 percent Sarvam API credit ledger.")
 
-    prs.save(PPTX_OUT)
-    shutil.copy2(PPTX_OUT, os.path.join(OUT_DIRS[1], "PaytmAI_VyaparVoice_v2.pptx"))
+    prs.save(PPTX_V21_OUT)
+    shutil.copy2(PPTX_V21_OUT, PPTX_V2_OUT)
+    shutil.copy2(PPTX_V21_OUT, os.path.join(OUT_DIRS[1], "PaytmAI_VyaparVoice_v2_1.pptx"))
+    shutil.copy2(PPTX_V21_OUT, os.path.join(OUT_DIRS[1], "PaytmAI_VyaparVoice_v2.pptx"))
     shutil.copy2(__file__, os.path.join(OUT_DIRS[0], "build_deck_v2.py"))
-    print("Saved Deck v2:", PPTX_OUT)
+    print("Saved Deck v2.1:", PPTX_V21_OUT)
 
 
 if __name__ == "__main__":
-    build_deck_v2()
+    build_deck_v2_1()

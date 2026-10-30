@@ -244,6 +244,18 @@ def test_stage2_suite() -> None:
                 assert "PAUSED_STOP_LOSS" in rep_html
                 print("  [PASS] 09. Task 17c zero-network offline replay (/replay & demo_replay.html) verified")
 
+                # 10. Render fastboot & empty-env resilience check
+                r_head_root = client.head("/")
+                r_head_health = client.head("/api/health")
+                assert r_head_root.status_code == 200 and r_head_health.status_code == 200
+                os.environ["GROQ_TIMEOUT_SECONDS"] = ""
+                os.environ["GROQ_MAX_CALLS_PER_SESSION"] = ""
+                s_blank = load_settings(force_reload=True)
+                assert s_blank.groq_timeout_seconds == 6.0 and s_blank.groq_max_calls_per_session == 20
+                os.environ.pop("GROQ_TIMEOUT_SECONDS", None)
+                os.environ.pop("GROQ_MAX_CALLS_PER_SESSION", None)
+                print("  [PASS] 10. Render fastboot HEAD probes & empty-env-var safety verified")
+
         finally:
             if prev_sess is None:
                 os.environ.pop("SESSION_STORAGE_DIR", None)
@@ -251,7 +263,7 @@ def test_stage2_suite() -> None:
                 os.environ["SESSION_STORAGE_DIR"] = prev_sess
             load_settings(force_reload=True)
 
-    print("\nSUCCESS: 9/9 Stage 2 & Stage 3 tests passed!")
+    print("\nSUCCESS: 10/10 Stage 2 & Stage 3 tests passed!")
 
 
 if __name__ == "__main__":

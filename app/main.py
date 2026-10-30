@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import os
+import threading
 from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -38,16 +39,24 @@ from .stats import (
 from .templates import render_why_explanation
 
 
+def _warm_baseline_db_async() -> None:
+    try:
+        with use_db_path(DB_PATH):
+            init_and_seed_db(force_reset=False)
+    except Exception:
+        pass
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    with use_db_path(DB_PATH):
-        init_and_seed_db(force_reset=False)
+    # Defer SQLite seed onto a daemon thread so Uvicorn binds 0.0.0.0:$PORT immediately on 0.1-CPU Render Free tier.
+    threading.Thread(target=_warm_baseline_db_async, daemon=True).start()
     yield
 
 
 app = FastAPI(
     title="PaytmAI VyaparVoice - Merchant Growth Autopilot",
-    version="1.3.0",
+    version="1.3.1",
     lifespan=lifespan,
 )
 
@@ -119,17 +128,17 @@ class MerchantQAPayload(BaseModel):
     lang: str = "en"
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def serve_index():
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 
 
-@app.get("/replay")
+@app.api_route("/replay", methods=["GET", "HEAD"])
 def serve_offline_replay():
     return FileResponse(os.path.join(STATIC_DIR, "demo_replay.html"))
 
 
-@app.get("/api/health")
+@app.api_route("/api/health", methods=["GET", "HEAD"])
 def health(request: Request):
     settings = get_settings()
     return {

@@ -16,6 +16,27 @@ def _parse_bool(val: Optional[str], default: bool = False) -> bool:
     return val.strip().lower() in ("1", "true", "yes", "on")
 
 
+def _env_str(key: str, default: str) -> str:
+    raw = os.environ.get(key)
+    if raw is None or raw.strip() == "":
+        return default
+    return raw.strip()
+
+
+def _env_int(key: str, default: int) -> int:
+    raw = os.environ.get(key)
+    if raw is None or raw.strip() == "":
+        return int(default)
+    return int(raw.strip())
+
+
+def _env_float(key: str, default: float) -> float:
+    raw = os.environ.get(key)
+    if raw is None or raw.strip() == "":
+        return float(default)
+    return float(raw.strip())
+
+
 def _load_dotenv_non_destructive(dotenv_path: Path) -> None:
     """Load local .env key-values into os.environ only if not already set."""
     if not dotenv_path.exists():
@@ -161,9 +182,9 @@ def load_settings(force_reload: bool = False) -> Settings:
     cache_rel = cap_sec.get("cache_dir", "data/audio_cache")
     sess_rel = sess_sec.get("storage_dir", "app/sessions_db")
 
-    ledger_path = Path(os.environ.get("SARVAM_LEDGER_PATH", str(REPO_ROOT / ledger_rel)))
-    cache_dir = Path(os.environ.get("SARVAM_CACHE_DIR", str(REPO_ROOT / cache_rel)))
-    sess_dir = Path(os.environ.get("SESSION_STORAGE_DIR", str(REPO_ROOT / sess_rel)))
+    ledger_path = Path(_env_str("SARVAM_LEDGER_PATH", str(REPO_ROOT / ledger_rel)))
+    cache_dir = Path(_env_str("SARVAM_CACHE_DIR", str(REPO_ROOT / cache_rel)))
+    sess_dir = Path(_env_str("SESSION_STORAGE_DIR", str(REPO_ROOT / sess_rel)))
 
     _CACHED_SETTINGS = Settings(
         app_name=str(app_sec.get("name", "PaytmAI VyaparVoice")),
@@ -174,11 +195,11 @@ def load_settings(force_reload: bool = False) -> Settings:
         isolate_visitors=isolate_visitors,
         session_cookie_name=str(sess_sec.get("cookie_name", "vyaparvoice_sid")),
         session_header_name=str(sess_sec.get("header_name", "X-Demo-Session")),
-        session_ttl_seconds=int(os.environ.get("SESSION_TTL_SECONDS", sess_sec.get("ttl_seconds", 1800))),
-        max_active_sessions=int(os.environ.get("MAX_ACTIVE_SESSIONS", sess_sec.get("max_active_sessions", 64))),
-        max_session_db_bytes=int(os.environ.get("MAX_SESSION_DB_BYTES", sess_sec.get("max_session_db_bytes", 2097152))),
-        max_total_sessions_bytes=int(
-            os.environ.get("MAX_TOTAL_SESSIONS_BYTES", sess_sec.get("max_total_sessions_bytes", 33554432))
+        session_ttl_seconds=_env_int("SESSION_TTL_SECONDS", int(sess_sec.get("ttl_seconds", 1800))),
+        max_active_sessions=_env_int("MAX_ACTIVE_SESSIONS", int(sess_sec.get("max_active_sessions", 64))),
+        max_session_db_bytes=_env_int("MAX_SESSION_DB_BYTES", int(sess_sec.get("max_session_db_bytes", 2097152))),
+        max_total_sessions_bytes=_env_int(
+            "MAX_TOTAL_SESSIONS_BYTES", int(sess_sec.get("max_total_sessions_bytes", 33554432))
         ),
         session_storage_dir=sess_dir,
         default_gross_margin_pct=float(econ_sec.get("default_gross_margin_pct", 30.0)),
@@ -200,7 +221,7 @@ def load_settings(force_reload: bool = False) -> Settings:
         sarvam_enabled=_parse_bool(os.environ.get("SARVAM_ENABLED"), False),
         sarvam_live_calls_enabled=_parse_bool(os.environ.get("SARVAM_LIVE_CALLS_ENABLED"), False),
         sarvam_api_key=os.environ.get("SARVAM_API_KEY", "").strip(),
-        sarvam_base_url=os.environ.get("SARVAM_BASE_URL", str(s_cfg.get("base_url", "https://api.sarvam.ai"))).rstrip("/"),
+        sarvam_base_url=_env_str("SARVAM_BASE_URL", str(s_cfg.get("base_url", "https://api.sarvam.ai"))).rstrip("/"),
         sarvam_timeout_seconds=float(s_cfg.get("timeout_seconds", 8.0)),
         sarvam_tts_endpoint=str(tts_sec.get("endpoint", "/text-to-speech")),
         sarvam_tts_model=str(tts_sec.get("model", "bulbul:v3")),
@@ -218,13 +239,13 @@ def load_settings(force_reload: bool = False) -> Settings:
         sarvam_cache_dir=cache_dir,
         groq_enabled=_parse_bool(os.environ.get("GROQ_ENABLED"), bool(groq_sec.get("enabled", False))),
         groq_api_key=os.environ.get("GROQ_API_KEY", "").strip(),
-        groq_base_url=os.environ.get(
+        groq_base_url=_env_str(
             "GROQ_BASE_URL", str(groq_sec.get("base_url", "https://api.groq.com/openai/v1"))
         ).rstrip("/"),
-        groq_model=os.environ.get("GROQ_MODEL", str(groq_sec.get("model", "llama-3.1-8b-instant"))),
-        groq_timeout_seconds=float(os.environ.get("GROQ_TIMEOUT_SECONDS", groq_sec.get("timeout_seconds", 6.0))),
-        groq_max_calls_per_session=int(
-            os.environ.get("GROQ_MAX_CALLS_PER_SESSION", groq_sec.get("max_calls_per_session", 20))
+        groq_model=_env_str("GROQ_MODEL", str(groq_sec.get("model", "llama-3.1-8b-instant"))),
+        groq_timeout_seconds=_env_float("GROQ_TIMEOUT_SECONDS", float(groq_sec.get("timeout_seconds", 6.0))),
+        groq_max_calls_per_session=_env_int(
+            "GROQ_MAX_CALLS_PER_SESSION", int(groq_sec.get("max_calls_per_session", 20))
         ),
     )
     return _CACHED_SETTINGS

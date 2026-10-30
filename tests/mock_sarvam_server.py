@@ -50,18 +50,23 @@ def run_mock_sarvam_server(
 
         def do_POST(self) -> None:
             length = int(self.headers.get("Content-Length", "0"))
-            raw_body = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
-            try:
-                body = json.loads(raw_body)
-            except Exception:
-                body = {}
+            raw_bytes = self.rfile.read(length) if length > 0 else b""
+            ctype = self.headers.get("Content-Type", "")
+            body: Dict[str, object] = {}
+            is_multipart = "multipart/form-data" in ctype.lower()
+            if not is_multipart:
+                try:
+                    body = json.loads(raw_bytes.decode("utf-8") if raw_bytes else "{}")
+                except Exception:
+                    body = {}
 
             sub_key = self.headers.get("api-subscription-key", "")
             state.requests_log.append(
                 {
                     "path": self.path,
                     "has_auth": bool(sub_key),
-                    "body": body,
+                    "content_type": ctype,
+                    "body": body if not is_multipart else {"multipart_bytes": len(raw_bytes)},
                 }
             )
 
@@ -74,13 +79,22 @@ def run_mock_sarvam_server(
                 return
 
             if self.path == "/text-to-speech":
-                inputs = body.get("inputs") or []
-                if not inputs or not body.get("target_language_code"):
-                    self._respond(400, {"error": "Missing inputs or target_language_code"})
+                text_val = body.get("text")
+                model_val = str(body.get("model", "bulbul:v3"))
+                speaker_val = str(body.get("speaker", "shubh"))
+                v2_only_speakers = {"anushka", "manisha", "vidya", "arya", "abhilash", "karun", "hitesh"}
+                if not isinstance(text_val, str) or not text_val.strip() or not body.get("target_language_code"):
+                    self._respond(400, {"error": "Missing string 'text' or 'target_language_code'"})
+                    return
+                if model_val.startswith("bulbul:v3") and speaker_val in v2_only_speakers:
+                    self._respond(422, {"error": f"Speaker '{speaker_val}' is incompatible with {model_val}"})
                     return
                 self._respond(200, {"audios": [wav_b64], "request_id": "mock-tts-001"})
             elif self.path == "/speech-to-text":
-                lang = body.get("language_code", "en-IN")
+                if not is_multipart or b'name="file"' not in raw_bytes:
+                    self._respond(400, {"error": "Expected multipart/form-data with 'file' field"})
+                    return
+                lang = "kn-IN" if b"kn-IN" in raw_bytes else ("hi-IN" if b"hi-IN" in raw_bytes else "en-IN")
                 transcript = "Haudu approve win-back campaign" if lang == "kn-IN" else "Yes approve win-back campaign"
                 self._respond(200, {"transcript": transcript, "language_code": lang})
             elif self.path == "/translate":

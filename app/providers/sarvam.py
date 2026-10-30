@@ -1,3 +1,4 @@
+import base64
 from typing import Optional
 import httpx
 
@@ -7,6 +8,16 @@ from ..security import assert_paid_calls_permitted
 from .base import STTResult, TTSResult
 from .cache import PhraseAudioCache
 from .webspeech import WebSpeechFallbackProvider
+
+_LEGACY_V2_SPEAKER_MAP = {
+    "anushka": "priya",
+    "manisha": "priya",
+    "vidya": "ishita",
+    "arya": "roopa",
+    "abhilash": "shubh",
+    "karun": "mani",
+    "hitesh": "shubh",
+}
 
 
 class SarvamProviderError(RuntimeError):
@@ -47,8 +58,10 @@ class SarvamProvider:
         return round((secs / 3600.0) * self.settings.sarvam_stt_cost_per_hour_inr, 6)
 
     def synthesize(self, text: str, lang_code: str = "en-IN", strict: bool = False) -> TTSResult:
-        speaker = self.settings.sarvam_speakers.get(lang_code, "anushka")
         model = self.settings.sarvam_tts_model
+        speaker = self.settings.sarvam_speakers.get(lang_code, "shubh").strip().lower()
+        if model.startswith("bulbul:v3") and speaker in _LEGACY_V2_SPEAKER_MAP:
+            speaker = _LEGACY_V2_SPEAKER_MAP[speaker]
 
         # 1. Check phrase audio cache first (0 credits, safe everywhere)
         cached_hit = self.cache.get(model=model, lang_code=lang_code, speaker=speaker, text=text)
@@ -91,18 +104,19 @@ class SarvamProvider:
                 raise
             return self.fallback.synthesize(text, lang_code, reason=str(exc))
 
-        # 4. Perform live request
+        # 4. Perform live request (Sarvam Bulbul v3 REST contract: single 'text' string + compatible speaker)
         url = f"{self.settings.sarvam_base_url}{self.settings.sarvam_tts_endpoint}"
         headers = {
             "api-subscription-key": self.settings.sarvam_api_key,
             "Content-Type": "application/json",
         }
         payload = {
-            "inputs": [text],
+            "text": text,
             "target_language_code": lang_code,
             "speaker": speaker,
             "model": model,
-            "speech_sample_rate": 16000,
+            "speech_sample_rate": 22050,
+            "output_audio_codec": "wav",
         }
 
         try:
@@ -115,10 +129,11 @@ class SarvamProvider:
             return self.fallback.synthesize(text, lang_code, reason="Sarvam TTS network error")
 
         if resp.status_code != 200:
+            detail_snip = resp.text[:220] if resp.text else ""
             if resp.status_code in (401, 402, 403, 429) or resp.status_code >= 500:
                 self.ledger.trip_circuit_breaker("Billing/auth/rate/server error on TTS", resp.status_code)
             if strict:
-                raise SarvamProviderError(f"Sarvam TTS HTTP {resp.status_code}")
+                raise SarvamProviderError(f"Sarvam TTS HTTP {resp.status_code}: {detail_snip}")
             return self.fallback.synthesize(text, lang_code, reason=f"Sarvam HTTP {resp.status_code}")
 
         data = resp.json()
@@ -172,20 +187,30 @@ class SarvamProvider:
                 raise
             return self.fallback.transcribe_Simulated("", lang_code, reason=str(exc))
 
+        # Sarvam Saaras v3 REST contract: multipart/form-data upload ('file', 'model', 'mode', 'language_code')
         url = f"{self.settings.sarvam_base_url}{self.settings.sarvam_stt_endpoint}"
         headers = {
             "api-subscription-key": self.settings.sarvam_api_key,
-            "Content-Type": "application/json",
         }
-        payload = {
-            "audio_base64": audio_base64,
-            "language_code": lang_code,
+        try:
+            wav_bytes = base64.b64decode(audio_base64)
+        except Exception as exc:
+            if strict:
+                raise SarvamProviderError("Invalid base64 audio payload for STT") from exc
+            return self.fallback.transcribe_Simulated("", lang_code, reason="Invalid base64 audio")
+
+        form_data = {
             "model": self.settings.sarvam_stt_model,
+            "language_code": lang_code,
+            "mode": "transcribe",
+        }
+        files = {
+            "file": ("utterance.wav", wav_bytes, "audio/wav"),
         }
 
         try:
             with httpx.Client(timeout=self.settings.sarvam_timeout_seconds) as client:
-                resp = client.post(url, headers=headers, json=payload)
+                resp = client.post(url, headers=headers, data=form_data, files=files)
         except Exception as exc:
             self.ledger.trip_circuit_breaker(f"Network/timeout error on STT: {type(exc).__name__}")
             if strict:
@@ -193,10 +218,11 @@ class SarvamProvider:
             return self.fallback.transcribe_Simulated("", lang_code, reason="Sarvam STT network error")
 
         if resp.status_code != 200:
+            detail_snip = resp.text[:220] if resp.text else ""
             if resp.status_code in (401, 402, 403, 429) or resp.status_code >= 500:
                 self.ledger.trip_circuit_breaker("Billing/auth/rate/server error on STT", resp.status_code)
             if strict:
-                raise SarvamProviderError(f"Sarvam STT HTTP {resp.status_code}")
+                raise SarvamProviderError(f"Sarvam STT HTTP {resp.status_code}: {detail_snip}")
             return self.fallback.transcribe_Simulated("", lang_code, reason=f"Sarvam HTTP {resp.status_code}")
 
         data = resp.json()

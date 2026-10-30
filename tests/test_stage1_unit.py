@@ -28,7 +28,9 @@ from app.ledger import CreditCapExceededError, SarvamCreditLedger
 from app.providers.cache import PhraseAudioCache
 from app.providers.sarvam import SarvamProvider, SarvamProviderError
 from app.stats import (
+    compute_breakeven_lift,
     compute_cap_binding_risk,
+    compute_pooled_pilot_power_table,
     evaluate_itt_holdout_and_profit,
     fisher_exact_2x2,
     required_sample_size_two_prop,
@@ -260,6 +262,7 @@ def test_merchant_copy_lint_and_draft_badges() -> None:
                     assert "DRAFT" in br["review_status"]
                 else:
                     assert br["is_draft_translation"] is False
+                    assert br["review_status"] == "EN author-checked, native review pending"
 
             for utt in ("Approve win-back", "Fast forward 48 hours", "Milk stock", "How were sales"):
                 vr = handle_voice_command(utt, lang="en")
@@ -274,14 +277,109 @@ def test_merchant_copy_lint_and_draft_badges() -> None:
     assert not bad_dash["passed"]
 
 
+def test_pooled_50_shop_power_and_breakeven_lift() -> None:
+    tbl = compute_pooled_pilot_power_table(
+        n_shops=50, control_per_shop=8, treatment_per_shop=32, p_control=0.125, lifts_pp=[4, 5, 6, 7, 8, 10]
+    )
+    assert tbl["n_control"] == 400 and tbl["n_treatment"] == 1600 and tbl["total_n"] == 2000
+    by_lift = {int(r["lift_pp"]): r["power_pct"] for r in tbl["rows"]}
+    assert by_lift == {4: 50.3, 5: 68.8, 6: 83.3, 7: 92.5, 8: 97.2, 10: 99.8}, f"Got {by_lift}"
+
+    be = compute_breakeven_lift(p_control=0.125, avg_bill_inr=217.50, gross_margin_pct=30.0, offer_rupees=25.0, paytm_fee_pct=5.0)
+    assert be["breakeven_lift_pre_fee_pp"] == 7.8
+    assert be["breakeven_lift_post_fee_pp"] == 15.3
+
+
+def test_session_ttl_max_count_and_size_limits() -> None:
+    """
+    Verifies all Render free-tier per-visitor session DB resource bounds:
+      1. Idle TTL eviction (session_ttl_seconds).
+      2. Max session count LRU eviction of oldest (max_active_sessions).
+      3. Per-DB size limit eviction (max_session_db_bytes).
+      4. Total session directory disk limit LRU eviction (max_total_sessions_bytes).
+    """
+    import time
+    from app.sessions import (
+        _SESSION_LAST_SEEN,
+        active_session_summary,
+        evict_stale_sessions,
+        reset_session_tracker,
+    )
+
+    prev = {
+        k: os.environ.get(k)
+        for k in (
+            "SESSION_STORAGE_DIR",
+            "SESSION_TTL_SECONDS",
+            "MAX_ACTIVE_SESSIONS",
+            "MAX_SESSION_DB_BYTES",
+            "MAX_TOTAL_SESSIONS_BYTES",
+        )
+    }
+    with tempfile.TemporaryDirectory() as tmpdir:
+        try:
+            os.environ["SESSION_STORAGE_DIR"] = tmpdir
+            os.environ["SESSION_TTL_SECONDS"] = "60"
+            os.environ["MAX_ACTIVE_SESSIONS"] = "3"
+            os.environ["MAX_SESSION_DB_BYTES"] = "524288"        # 512 KB per DB
+            os.environ["MAX_TOTAL_SESSIONS_BYTES"] = "1048576"  # 1 MB total dir
+            load_settings(force_reload=True)
+            reset_session_tracker()
+
+            t0 = time.time()
+            # Seed 4 sessions with staggered timestamps -> max_active_sessions=3 must evict oldest (s1)
+            for idx, sid in enumerate(("sess0001", "sess0002", "sess0003", "sess0004")):
+                p = Path(tmpdir) / f"sess_{sid}.db"
+                p.write_bytes(b"x" * 200_000)  # 200 KB each
+                _SESSION_LAST_SEEN[sid] = t0 + idx
+
+            evict_stale_sessions(now_ts=t0 + 10)
+            assert not (Path(tmpdir) / "sess_sess0001.db").exists(), "Oldest session should be evicted at max_count=3"
+            assert (Path(tmpdir) / "sess_sess0002.db").exists()
+            assert (Path(tmpdir) / "sess_sess0004.db").exists()
+
+            # Per-DB size limit: bloat sess0003 beyond 512 KB -> evicted
+            (Path(tmpdir) / "sess_sess0003.db").write_bytes(b"y" * 600_000)
+            evict_stale_sessions(now_ts=t0 + 11)
+            assert not (Path(tmpdir) / "sess_sess0003.db").exists(), "Oversized session DB must be evicted"
+
+            # Total directory byte cap (1 MB): 3 files x 400 KB = 1.2 MB -> oldest evicted to stay <= 1 MB
+            for idx, sid in enumerate(("capA0001", "capB0002", "capC0003")):
+                (Path(tmpdir) / f"sess_{sid}.db").write_bytes(b"z" * 400_000)
+                _SESSION_LAST_SEEN[sid] = t0 + 20 + idx
+            _SESSION_LAST_SEEN.pop("sess0002", None)
+            (Path(tmpdir) / "sess_sess0002.db").unlink(missing_ok=True)
+            _SESSION_LAST_SEEN.pop("sess0004", None)
+            (Path(tmpdir) / "sess_sess0004.db").unlink(missing_ok=True)
+
+            evict_stale_sessions(now_ts=t0 + 25)
+            summary = active_session_summary()
+            assert int(summary["total_disk_bytes"]) <= 1_048_576, f"Total bytes exceeded cap: {summary}"
+            assert not (Path(tmpdir) / "sess_capA0001.db").exists(), "Oldest session must be evicted under total byte cap"
+
+            # TTL expiry: advance clock past 60s -> remaining sessions evicted
+            evict_stale_sessions(now_ts=t0 + 200)
+            assert active_session_summary()["active_sessions"] == 0
+        finally:
+            reset_session_tracker()
+            for k, v in prev.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+            load_settings(force_reload=True)
+
+
 def run_all() -> None:
     tests = [
         ("Config & PUBLIC_DEPLOY safeguards", test_config_and_public_deploy_safeguards),
         ("Power calculator (80/20 & 50/50) + Fisher/Wilson", test_power_calculator_reference_values),
+        ("Pooled 50-shop pilot power table & break-even lift", test_pooled_50_shop_power_and_breakeven_lift),
         ("Cap-vs-Holdout ITT invariance & >10% warning", test_cap_vs_holdout_itt_invariance_and_warnings),
         ("25-thread atomic spend-cap concurrency stress test", test_atomic_concurrency_under_simultaneous_scans),
         ("Keyless Sarvam 15%/30% credit caps & fail-closed circuit", test_sarvam_credit_caps_and_fail_closed_circuit),
-        ("Merchant copy linter & KN/HI draft translation badges", test_merchant_copy_lint_and_draft_badges),
+        ("Merchant copy linter & EN/KN/HI review badges", test_merchant_copy_lint_and_draft_badges),
+        ("Render session TTL, max-count LRU, and DB/total size limits", test_session_ttl_max_count_and_size_limits),
     ]
     print("Running Stage 1 Unit & Concurrency Suite...\n")
     for idx, (label, fn) in enumerate(tests, start=1):

@@ -21,7 +21,11 @@ from .engine import (
 from .providers.sarvam import SarvamProvider
 from .security import verify_admin_token
 from .sessions import SessionIsolationMiddleware, active_session_summary
-from .stats import required_sample_size_two_prop
+from .stats import (
+    compute_breakeven_lift,
+    compute_pooled_pilot_power_table,
+    required_sample_size_two_prop,
+)
 
 
 @asynccontextmanager
@@ -104,13 +108,16 @@ def api_power(
     power: float = 0.80,
 ):
     try:
-        return required_sample_size_two_prop(
+        res = required_sample_size_two_prop(
             p_control=p_control,
             p_treatment=p_treatment,
             alpha=alpha,
             power=power,
             allocation_ratio=allocation_ratio,
         )
+        res["pooled_50_shop_pilot"] = compute_pooled_pilot_power_table(p_control=p_control, alpha=alpha)
+        res["breakeven_lift"] = compute_breakeven_lift(p_control=p_control)
+        return res
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

@@ -503,7 +503,7 @@
       </div>
 
       <div class="copy-meta-row">
-        <span class="meta-tag" id="reviewBadge">REVIEWED TEMPLATE</span>
+        <span class="meta-tag" id="reviewBadge">EN author-checked, native review pending</span>
         <span class="meta-tag" id="audioProviderBadge">Browser Web Speech</span>
       </div>
 
@@ -901,7 +901,7 @@
                 <div class="proof-grid">
                   <div class="cm-item"><span>Nudged Return (ITT)</span><strong>${itt.treatment_returned}/${itt.treatment_count} (${itt.treatment_rate_pct}%)</strong><span style="font-size:10.5px;">95% Wilson CI: ${itt.treatment_wilson_95_ci[0]}%-${itt.treatment_wilson_95_ci[1]}%</span></div>
                   <div class="cm-item"><span>Silent Control Return</span><strong>${itt.holdout_returned}/${itt.holdout_count} (${itt.holdout_rate_pct}%)</strong><span style="font-size:10.5px;">95% Wilson CI: ${itt.holdout_wilson_95_ci[0]}%-${itt.holdout_wilson_95_ci[1]}%</span></div>
-                  <div class="cm-item"><span>Fisher Exact & Power</span><strong>p = ${itt.fisher_p_two_sided.toFixed(2)} (2-sided)</strong><span style="font-size:10.5px;">80/20: ${p80.n_control}C+${p80.n_treatment}T=${p80.total_n} (~${p80.waves_needed}w) | 50/50: ${p50.n_control}/arm</span></div>
+                  <div class="cm-item"><span>Fisher Exact & Power</span><strong>p = ${itt.fisher_p_two_sided.toFixed(2)} (2-sided)</strong><span style="font-size:10.5px;">80/20: ${p80.n_control}C+${p80.n_treatment}T=${p80.total_n} (~${p80.waves_needed} store-waves) | 50/50: ${p50.n_control}/arm</span></div>
                   <div class="cm-item"><span>Cap Stop & Refusals</span><strong>Rs ${capA.budget_spent_inr} / Rs ${capA.max_budget_inr}</strong><span style="font-size:10.5px;">CapReached=${capA.cap_reached} | Paid=${capA.funded_redemptions}, Refused=${capA.refused_redemptions}</span></div>
                 </div>
                 <div class="proof-grid" style="border-top:1px dashed #6ee7b7;padding-top:10px;margin-top:10px;">

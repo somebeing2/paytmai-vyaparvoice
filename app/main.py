@@ -124,6 +124,11 @@ def serve_index():
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 
 
+@app.get("/replay")
+def serve_offline_replay():
+    return FileResponse(os.path.join(STATIC_DIR, "demo_replay.html"))
+
+
 @app.get("/api/health")
 def health(request: Request):
     settings = get_settings()

@@ -28,6 +28,7 @@ SECRET_PATTERNS = [
 HYGIENE_GLOBS = [
     "AUDIT.md",
     "PLAN.md",
+    "AGENT_HANDOFF.md",
     "results/slide_numbers.md",
     "results/unit_economics.md",
     "docs/SCRIPTS.md",

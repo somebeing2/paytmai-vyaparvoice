@@ -15,7 +15,8 @@
    ```
 2. **Open & Verify Tabs:**
    - Tab 1: `http://127.0.0.1:8000` (click **Reset Session**, verify `Rs 1,74,685` 30d sales, test audio volume at 70%).
-   - Tab 2: `deck/v2/PaytmAI_VyaparVoice_v2.pdf` (or `deck/v1/PaytmAI_VyaparVoice_v1.pdf` prior to Deck v2 build), full-screen ready on Slide 1.
+   - Tab 2: `http://127.0.0.1:8000/replay` or `app/static/demo_replay.html` via `file://` (zero-network offline replay console ready as instant backup).
+   - Tab 3: `deck/v3/PaytmAI_VyaparVoice_v3.pdf` (`18` slides: `Main 1..5` + `Appendix A1..A13`), full-screen ready on Slide 1.
 3. **Warm Up Public Render URL (If Judges Want to Scan Slide 2 QR):**
    - Render free plan spins down after 15 minutes idle (~60s cold start). Hit `https://paytmai-vyaparvoice.onrender.com/api/health` from your phone hotspot **2 minutes before** walking up to the table or stage.
 4. **Network Backup:** Keep phone USB/Wi-Fi hotspot armed, though `127.0.0.1:8000` + cached audio / browser Web Speech works offline.
@@ -51,4 +52,4 @@
 
 1. **Mic noisy on stage:** Click the built-in simulated voice chip (`"Haudu / Haan, Approve"`) directly below the Soundbox LCD.
 2. **Audio muted on HDMI:** Point to the live text transcript box + toggle **Merchant View** / **Technical & Audit View** visually.
-3. **Browser or port conflict:** Switch immediately to the open PDF deck (`Slide 3` + `Appendix A4` + `Slide 4`) using the **Emergency Deck-Only Fallback Bridge** in `docs/SCRIPTS.md`.
+3. **Browser or port conflict:** Switch immediately to `app/static/demo_replay.html` (`file://` zero-backend interactive replay) or the open PDF deck (`deck/v3/PaytmAI_VyaparVoice_v3.pdf`: `Slide 3`, `Slide 4`, `Appendix A12`, `Appendix A13`) using the **Emergency Deck-Only Fallback Bridge** in `docs/SCRIPTS.md`.

@@ -1,133 +1,132 @@
-# PaytmAI VyaparVoice - Merchant Growth, Operations & Retention Autopilot
+# PaytmAI VyaparVoice - Merchant Growth, Operations & Retention Assistant
 
-[![Live Demo](https://img.shields.io/badge/LIVE_DEMO-Open_Soundbox_App-00BAF2?style=for-the-badge&logo=render&logoColor=white)](https://paytmai-vyaparvoice.onrender.com)
-![Track](https://img.shields.io/badge/Track_1-Merchant_Growth_AI-00BAF2?style=for-the-badge)
-![Stack](https://img.shields.io/badge/FastAPI_%2B_SQLite-Vernacular_Voice-002970?style=for-the-badge)
-![QA Battery](https://img.shields.io/badge/Preflight_Suite-11%2F11_Gates_Passing-059669?style=for-the-badge)
-![License](https://img.shields.io/badge/License-MIT-slate?style=for-the-badge)
+**Live Render Demo:** [https://paytmai-vyaparvoice.onrender.com](https://paytmai-vyaparvoice.onrender.com)
+**Track 1:** Merchant Growth AI | **Team:** SemiTechnical | **Author:** Kevin Joseph
 
-> **Paytm Build for India AI Hackathon - Bengaluru Finals Edition**
-> **Track 1:** Merchant Growth AI (*Build the AI business partner for every Paytm merchant*)
-> **Team Name:** SemiTechnical | **Member Name:** Kevin Joseph
+**PaytmAI VyaparVoice** is a voice-first vernacular decision and retention prototype for neighbourhood kiranas and darshinis using Paytm QR and Soundbox (*Sri Krishna Darshini & Provisions, Indiranagar, Bengaluru*). It analyses a shop's QR payment ledger to spot silent regulars, dead-hour troughs, weekend stock spikes, and delayed frequent visitors, then reads a 3-sentence closing briefing in **Kannada, Hindi, or English**, accepts verbal or one-tap offer budgets (`Rs 50` to `Rs 2,500`) with mandatory readback confirmation, enforces hard spend caps with spoken `50%`, `80%`, and `100%` alerts, and measures returning visits against a randomized `80/20` non-offer holdout group without ever letting an LLM invent or alter a single number.
 
 ---
 
-## Live MVP Interface Preview
+## Run Locally (Zero API Keys Required)
 
-![PaytmAI VyaparVoice Live Dashboard](./docs/screenshots/dashboard-roi-proof.png)
+Every feature works out of the box with **zero API keys** using browser Web Speech and deterministic SQLite templates.
 
----
-
-## Overview
-
-**PaytmAI VyaparVoice** turns Paytm's **AI Soundbox + Paytm for Business** into a voice-first vernacular growth, operations, and customer-care copilot for neighbourhood kiranas and darshinis (*Sri Krishna Darshini & Provisions, Indiranagar, Bengaluru*).
-
-### Core Finals Capabilities
-1. **Full Merchant View Localisation (`en`, `hi`, `kn`):** Single global language state persisted in `localStorage` (defaulting to the merchant profile language `kn`), translating every Merchant View string, button, status badge, parameterised offer card, KPI card, and audit entry with Indian number formatting (`en-IN`) and `Noto Sans` / `Noto Sans Devanagari` / `Noto Sans Kannada` web fonts. Hindi and Kannada content carry the explicit `"Draft - unreviewed by native speaker"` badge, while `Technical & Audit View` stays strictly in English.
-2. **Voice-First 3-Sentence Soundbox Briefing:** Default Soundbox briefing delivers 2 to 3 crisp sentences (today's headline, offer status, and one suggested action) with `"Hear details"` for the full readout, `"Speak"` playback via Sarvam `bulbul:v3` or browser Web Speech, and graceful missing-voice handling for Kannada/Hindi.
-3. **Verbal Budget Setting with Mandatory Readback Confirmation:** Accepts English, Hindi, and Kannada spoken or typed budget commands (`"set my offer budget to one thousand rupees for this week"`), parses digits and number words deterministically first, shows an editable transcript for noisy shop floors, enforces `Rs 50` to `Rs 2,500` bounds, reads back `"Offer budget of Rs {amount} for {period}. Say yes to confirm."`, and records `source="voice"` or `source="dashboard"` in the immutable audit log.
-4. **Spoken `50%`, `80%`, and `100%` Threshold Alerts:** Fires each threshold once per campaign (persisted in SQLite and logged in `audit_logs`), speaks and displays in the active language, offers voice/tap `"extend"` (via confirmed budget flow) or `"stop"` at `80%`, and includes a `"Simulate spend"` demo control in `Technical & Audit View`.
-5. **Automatic `100%` Cap Pause & Regular-Price Continuity:** Automatically pauses cashback issuance at `100%` of cap so spend never exceeds `max_budget`; subsequent customers are billed at regular price (zero turned away), with spoken and visual return-per-rupee summary suggesting extension only when net return per rupee is positive.
-6. **Jargon-Free `"Explain simply"` Results:** Plain everyday explanations in `en`, `hi`, and `kn` for cap performance, offer vs non-offer buyers, and spend vs return (`"uplift"`, `"control group"`, `"break-even"` banned), backed by strict code-supplied numbers and an LLM number-match validator that falls back to deterministic templates if any number differs.
-7. **Deterministic Guardrails & Financial Honesty:** Every number, amount, count, date, and percentage is computed in Python/SQLite (`240` customers, `1,613` historical UPI transactions). Evidence grades (`Grade A` observed ledger, `Grade B` simulated holdout, `Grade C` margin/fee assumptions) and pre-run / break-even states are labelled explicitly.
-
----
-
-## Quickstart (Zero API Keys Required)
-
-Every feature works out of the box with **zero API keys set** using browser Web Speech + deterministic SQLite templates.
-
-### Option A: Windows (PowerShell)
-```powershell
-Set-Location "$HOME\paytmai-vyaparvoice"
-$env:PYTHONUTF8 = "1"
-pip install -r requirements.txt
-python scripts\preflight.py
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
-```
-Open **`http://127.0.0.1:8000`** in Chrome or Edge.
-
-### Option B: Linux / macOS
+### Linux / macOS
 ```bash
+git clone <repo-url>
 cd paytmai-vyaparvoice
 pip install -r requirements.txt
+python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+### Windows (PowerShell)
+```powershell
+git clone <repo-url>
+Set-Location paytmai-vyaparvoice
+$env:PYTHONUTF8 = "1"
+pip install -r requirements.txt
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+Open **`http://127.0.0.1:8000`** in Chrome or Edge.
+
+---
+
+## Testing & Verification Suite
+
+Run the 12-gate automated preflight and QA suite (secret scan, `render.yaml` check, formatting hygiene, unit economics, Sarvam/Groq mocks, 4-mode failover matrix, `DEMO_PIN` & IP rate limits, cache seeding, and 21/21 baseline QA checks):
+
+```bash
 python3 scripts/preflight.py
-python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 ---
 
-## Environment Variables & Provider Switches
+## Architecture Overview
 
-`.env` is listed in `.gitignore` and must never be committed. Copy `.env.example` to `.env` for local configuration:
-
-| Variable | Default | Purpose |
-| :--- | :--- | :--- |
-| `SARVAM_API_KEY` | *(empty)* | Sarvam AI subscription key (`bulbul:v3` TTS + `saaras:v3` STT). When empty, falls back cleanly to browser Web Speech. |
-| `GROQ_API_KEY` | *(empty)* | Groq free-tier API key for grounded merchant Q&A and number-verified plain phrasing. When empty, falls back to deterministic SQLite templates. |
-| `STT_TTS_PROVIDER` | `auto` | `auto` (uses Sarvam when `SARVAM_API_KEY` is set, else `webspeech`), `sarvam`, or `webspeech` (forces browser Web Speech even if a key exists). |
-| `LLM_PROVIDER` | `auto` | `auto` (uses Groq when `GROQ_API_KEY` is set, else `template`), `groq`, or `template` (forces static deterministic templates). |
-| `GROQ_MODEL` | `openai/gpt-oss-20b` | Free-tier Groq chat completion model identifier (`llama-3.1-8b-instant` or `openai/gpt-oss-20b`). |
-| `PUBLIC_DEPLOY` | `false` locally / `true` on Render | When `true`, hard-blocks outbound paid/credit API calls (`assert_paid_calls_permitted`) so public traffic cannot drain keys; cached WAV audio in `data/audio_cache/` still plays at zero credit cost. |
-| `ISOLATE_VISITORS` | `true` | Isolates each browser visitor into a bounded per-session SQLite copy (`app/sessions_db/`). |
-| `ADMIN_TOKEN` | *(empty)* | Token protecting `/api/admin/reset-global` and `/api/admin/provider-status`. |
-| `PORT` | `8000` | HTTP port bound by Uvicorn (`0.0.0.0:$PORT` on Render). |
+VyaparVoice is a **FastAPI + SQLite** single-service web application (`app/main.py`, `app/engine.py`, `app/stats.py`) serving a zero-build vanilla HTML/JS bilingual/trilingual interface (`app/static/index.html`, `app/static/i18n.js`). Each browser visitor receives an isolated, TTL-bounded SQLite session database (`app/sessions.py`) cloned from the seeded 60-day store ledger (`app/database.py`), while all financial waterfalls, Fisher exact tests, Wilson confidence intervals, Bayesian posteriors, and policy guardrails execute deterministically in Python. Speech and open-ended Q&A pass through a unified `ProviderRouter` (`app/providers/router.py`) backed by a persistent SQLite cache (`app/providers/persistent_cache.py`) and a strict numeric grounding gate (`verify_numeric_grounding`, normalizing ASCII, Devanagari, and Kannada digits) that rejects any model output containing an unverified number.
 
 ---
 
-## How to Enable Sarvam AI with One Key
+## Provider Fallback Order
 
-No code changes are required to switch from browser Web Speech to live Sarvam AI (`bulbul:v3` TTS + `saaras:v3` STT):
+All TTS, STT, and chat/plain-explanation requests follow a three-tier priority order across **English (`en-IN`), Hindi (`hi-IN`), and Kannada (`kn-IN`)**:
 
-1. Create a local `.env` file (ignored by git) with a single line:
-   ```ini
-   SARVAM_API_KEY=<paste-in-local-dotenv>
-   ```
-2. Because `STT_TTS_PROVIDER` defaults to `auto` (and `PUBLIC_DEPLOY` defaults to `false` locally), restarting `uvicorn app.main:app` immediately enables live Sarvam TTS (`priya` for `en-IN` and `kn-IN`, `shubh` for `hi-IN`) and Sarvam `saaras:v3` STT, caching generated WAV clips under `data/audio_cache/`.
-3. Optional CLI pre-cache & credit budget check (`<= 15%` TTS cap, `~4` credits total for all 3 languages):
+1. **Sarvam AI (Primary):** Active when `SARVAM_API_KEY` is set, call count is within `SARVAM_MAX_CALLS` and `SARVAM_SESSION_MAX_CALLS`, and live calls are permitted (`PUBLIC_DEPLOY=false`, or unlocked via `DEMO_PIN` / `DEMO_LIVE_UNLOCKED=true`). Uses `api-subscription-key` against `bulbul:v3` (`/text-to-speech`), `saaras:v4` (`/speech-to-text`, `10`-second max clip), and `sarvam-105b-conversations` (`/v1/chat/completions`).
+2. **Groq (Secondary Fallback):** Active when Sarvam is unset, capped, or returns an HTTP/timeout error and `GROQ_API_KEY` is set. Uses `openai/gpt-oss-20b` (`/chat/completions`), `whisper-large-v3-turbo` (`/audio/transcriptions`), and `canopylabs/orpheus-v1-english` (`/audio/speech` for English).
+3. **Browser Web Speech + Static Deterministic Templates (Tertiary Fallback):** Always available offline/keyless with zero external network calls.
+
+Any Sarvam error, timeout, or quota cap falls back automatically and silently, surfacing only a small non-blocking notice in `Technical & Audit View`.
+
+---
+
+## Environment Variables
+
+Copy `.env.example` to `.env` for local keys. `.env` is gitignored and is never logged, committed, or returned to the browser.
+
+| Variable | Default When Empty | Purpose |
+| :--- | :--- | :--- |
+| `SARVAM_API_KEY` | *(empty)* | Primary Sarvam AI subscription key (`bulbul:v3` TTS, `saaras:v4` STT, `sarvam-105b-conversations` Chat). |
+| `GROQ_API_KEY` | *(empty)* | Secondary Groq API key (`openai/gpt-oss-20b` Chat, `whisper-large-v3-turbo` STT, `canopylabs/orpheus-v1-english` TTS). |
+| `SARVAM_MAX_CALLS` | `60` | Global hard ceiling on live Sarvam API calls before automatic fallback. |
+| `SARVAM_SESSION_MAX_CALLS` | `35` | Per-visitor-session ceiling on live Sarvam API calls. |
+| `PUBLIC_DEPLOY` | `false` locally / `true` on Render | Blocks unauthenticated public traffic from triggering live paid/credit API calls unless unlocked via `DEMO_PIN`. |
+| `DEMO_PIN` | *(empty)* | Secret PIN set only in env vars; entering it in `Technical & Audit View` unlocks live Sarvam/Groq calls for that browser session only. |
+| `DEMO_LIVE_UNLOCKED` | `false` | Optional server-side override flag to permit live calls on a private deployment without entering `DEMO_PIN`. |
+| `RATE_LIMIT_PER_MINUTE` | `30` | Per-IP sliding-window limit per minute on all endpoints that can trigger model or audio calls. |
+| `STT_TTS_PROVIDER` | `auto` | `auto` (`Sarvam` -> `Groq` -> `Web Speech`), `sarvam`, `groq`, or `webspeech`. |
+| `LLM_PROVIDER` | `auto` | `auto` (`Sarvam` -> `Groq` -> `template`), `sarvam`, `groq`, or `template`. |
+
+---
+
+## Pre-Warm & Cache Seeding for Render's Ephemeral Disk
+
+Render Free instances use an ephemeral filesystem that resets on redeploy or sleep. To ship real Sarvam audio for all `30` fixed EN/HI/KN phrases (`27` unique clips) so public visitors hear authentic Sarvam voices at **zero runtime API calls**:
+
+1. Set `SARVAM_API_KEY` in your local `.env` (with `PUBLIC_DEPLOY=false`) and start the app locally.
+2. Open **Technical & Audit View** and click **Pre-warm Fixed Phrases (EN/HI/KN)** (or run `curl -X POST http://127.0.0.1:8000/api/providers/prewarm`).
+3. Export the cached fixed-phrase WAV files and clean manifest (`provider`, `language`, `voice`, `exact_text` only; zero keys, PINs, user data, or logs) into `assets/prewarmed/`:
    ```bash
-   python3 scripts/sarvam_cli.py status
-   python3 scripts/sarvam_cli.py activate --credits 100
+   python3 scripts/export_prewarmed.py
    ```
-4. To force fallback mode at any time without deleting your key, set `STT_TTS_PROVIDER=webspeech` or `LLM_PROVIDER=template` in `.env`.
+4. Commit and push `assets/prewarmed/`:
+   ```bash
+   git add assets/prewarmed
+   git commit -m "chore(cache): seed pre-warmed EN/HI/KN fixed-phrase audio"
+   git push origin main
+   ```
+5. On startup, VyaparVoice automatically seeds `data/provider_cache.db` from `assets/prewarmed/` with zero API calls (if `assets/prewarmed/` is empty or missing, startup proceeds normally using fallbacks).
 
 ---
 
-## Deploying on Render & 15-Minute Free-Tier Sleep Notice
+## DEMO_PIN Gating (Protecting API Credits on Public Links)
 
-1. Push the repository to GitHub (`render.yaml` and `Dockerfile` are pre-configured at repository root).
-2. In the Render Dashboard, select **New -> Blueprint** (or **New -> Web Service**) and connect the repository:
-   - Render builds from `Dockerfile` and binds `0.0.0.0:$PORT` immediately while seeding SQLite in a background thread.
-   - `PUBLIC_DEPLOY=true` is enabled automatically on Render (`RENDER=true`) to protect API credits from public traffic while serving pre-cached WAV audio and full isolated visitor sessions.
-   - If you choose to configure environment variables on a private Render instance, add them in **Render Dashboard -> Environment** (never in tracked files).
-3. **Important - Render Free Instance 15-Minute Inactivity Sleep:**
-   - **Render Free web services automatically spin down after 15 minutes of inactivity**, and the first cold-start request can take 30 to 50 seconds to wake the container.
-   - **Always ping `GET /health` 2 to 3 minutes before starting a live demo** to wake the instance and verify readiness:
-     ```bash
-     curl -i https://paytmai-vyaparvoice.onrender.com/health
-     ```
-     Or in Windows PowerShell:
-     ```powershell
-     Invoke-RestMethod "https://paytmai-vyaparvoice.onrender.com/health" | Format-List
-     ```
+Because the live Render URL is public, `PUBLIC_DEPLOY=true` is enabled automatically on Render to prevent bots or anonymous traffic from draining Sarvam or Groq trial credits:
+
+- **Default Locked Visitor Mode:** Public visitors still get full interactive SQLite sessions, deterministic EN/HI/KN voice answers, and zero-cost playback of any pre-warmed audio in `assets/prewarmed/`, with fallback to browser Web Speech for uncached phrases.
+- **Unlocking Live Calls During a Judge Demo:** Switch to **Technical & Audit View**, enter the `DEMO_PIN` (configured only in Render Environment Variables), and click **Unlock Live Demo**. Only your browser session is unlocked for live `saaras:v4` STT, `bulbul:v3` TTS, and `sarvam-105b-conversations` Q&A; click **Lock Demo** when finished.
 
 ---
 
-## Key REST Endpoints (`/docs` for OpenAPI UI)
+## Render Deployment & `/health` Wake Check
 
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| `GET` | `/health` (and `/api/health`) | Fast health & readiness check (use to wake Render free tier before demo) |
-| `GET` | `/api/overview` | Live 30d KPIs, profit state, campaigns, threshold alerts, cap summary & audit logs |
-| `GET` | `/api/briefing?lang=en\|kn\|hi&detail=false` | 3-sentence voice-first Soundbox briefing (`detail=true` for full version) |
-| `POST` | `/api/tts` & `POST /api/stt` | Active TTS / STT provider bridge (Sarvam when enabled, Web Speech fallback otherwise) |
-| `POST` | `/api/voice-command` | Multilingual verbal budget parser, yes/no confirmation, extend/stop & ops commands |
-| `POST` | `/api/campaigns/{id}/cap` | Cap editor (`Rs 50` to `Rs 2,500`) with two-step confirmation & `source` audit logging |
-| `POST` | `/api/campaigns/{id}/simulate-spend` | Technical View live spend simulator (`50%`, `80%`, `100%`, post-cap regular bills) |
-| `GET` | `/api/campaigns/{id}/explain-simply?lang=...` | Jargon-free plain explanation in `en`, `hi`, `kn` with strict number verification |
-| `GET` | `/api/why/{id}` | Plain + technical provenance drawer (`CMP-WINBACK-01`, `KPI-PROFIT`, etc.) |
-| `POST` | `/api/reset` | Reset isolated visitor session back to fresh 8:30 PM closing state |
+`render.yaml` is included at repository root:
+- **Build command:** `pip install -r requirements.txt`
+- **Start command:** `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- **Environment variable names to configure in Render Dashboard -> Environment (values set privately in Render, never in git):**
+  `SARVAM_API_KEY`, `GROQ_API_KEY`, `SARVAM_MAX_CALLS`, `SARVAM_SESSION_MAX_CALLS`, `PUBLIC_DEPLOY`, `DEMO_PIN`, `RATE_LIMIT_PER_MINUTE`, `DEMO_LIVE_UNLOCKED`.
+
+**Render Free-Tier 15-Minute Sleep & Health Check:** Render Free web services spin down after **15 minutes** of inactivity (`30` to `50` seconds cold start). Ping `/health` 2 minutes before a live demo to wake the container and verify readiness:
+
+```bash
+curl -i https://paytmai-vyaparvoice.onrender.com/health
+```
 
 ---
 
-Built for India's small businesses by **Kevin Joseph (Team SemiTechnical)**.
+## Limitations
+
+1. **Synthetic 60-Day Sample Ledger:** All store metrics (`240` customers, `1,613` historical QR transactions ending on `25 October 2026`, `seed = 20261025`) come from a deterministic synthetic ledger modelling a Bengaluru darshini and provisions store, not live production Paytm merchant data.
+2. **Unreviewed Vernacular Drafts:** All Hindi and Kannada strings and voice scripts are marked `"Draft - unreviewed by native speaker"` and require native-speaker copy review before production merchant rollout.
+3. **Proposed Voice-Device Interaction Design:** Two-way spoken budget setting and Q&A on an AI Soundbox or Paytm for Business companion interface is a proposed product workflow; this prototype captures spoken input (capped at `10` seconds) via the browser microphone with editable transcript and typed/chip fallbacks.
+4. **Modelled Profit & Single-Shop Sample Size:** Profit figures (`Grade C`) rely on explicit assumptions (`30%` gross shop margin and `5%` Paytm promo fee on redeemed bills) not observable on raw UPI receipts, and a single-shop `40`-customer wave (`32` with offer vs `8` holdout) is directional (`p = 0.2364`); validating true incremental lift requires a live pooled multi-shop randomized control trial (`n >= 2,000` across ~`50` shops).

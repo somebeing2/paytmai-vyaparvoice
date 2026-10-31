@@ -15,17 +15,29 @@ tts:
 
 stt:
   endpoint: "/speech-to-text"
-  model: "saaras:v3"
+  model: "saaras:v4"
+  fallback_model: "saaras:v3"
   cost_per_hour_inr: 30.0
   default_clip_seconds: 5.0
+
+chat:
+  endpoint: "/v1/chat/completions"
+  model: "sarvam-105b-conversations"
+  cost_per_call_credits: 0.15
+  max_tokens: 110
 
 translate:
   endpoint: "/translate"
   cost_per_10k_chars_inr: 20.0
 
 credit_caps:
+  default_initial_balance: 500.0
+  max_calls_global: 60
+  max_calls_per_session: 35
+  max_recording_seconds: 10.0
   tts_max_share_pct: 15.0
   stt_max_share_pct: 15.0
   total_max_share_pct: 30.0
   ledger_path: "data/sarvam_credit_ledger.json"
   cache_dir: "data/audio_cache"
+  cache_db_path: "data/provider_cache.db"

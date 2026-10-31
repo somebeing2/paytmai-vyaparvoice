@@ -1,6 +1,6 @@
 app:
   name: "PaytmAI VyaparVoice"
-  version: "1.4.0"
+  version: "1.5.0"
   public_deploy_default: false
   live_demo_url: "https://paytmai-vyaparvoice.onrender.com"
 
@@ -45,6 +45,9 @@ experiment:
 groq:
   enabled: false
   base_url: "https://api.groq.com/openai/v1"
-  model: "llama-3.1-8b-instant"
+  model: "openai/gpt-oss-20b"
+  stt_model: "whisper-large-v3-turbo"
+  tts_model: "canopylabs/orpheus-v1-english"
+  tts_voice: "troy"
   timeout_seconds: 6.0
   max_calls_per_session: 20

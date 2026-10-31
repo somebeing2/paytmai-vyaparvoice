@@ -23,7 +23,7 @@ from app.database import init_and_seed_db
 from app.engine import get_voice_briefing
 from app.ledger import CreditCapExceededError, SarvamCreditLedger
 from app.providers.cache import PhraseAudioCache
-from app.providers.sarvam import SarvamProvider, SarvamProviderError
+from app.providers.sarvam import SarvamProvider, SarvamProviderError, reset_sarvam_runtime_counters
 from tests.mock_sarvam_server import make_silent_wav_bytes, run_mock_sarvam_server
 
 
@@ -89,8 +89,10 @@ def cmd_selftest(live: bool = False) -> int:
                     "sarvam_base_url": base_url,
                     "sarvam_ledger_path": tmp_path / "ledger.json",
                     "sarvam_cache_dir": tmp_path / "cache",
+                    "provider_cache_db_path": tmp_path / "provider_cache.db",
                 }
             )
+            reset_sarvam_runtime_counters()
             ledger = SarvamCreditLedger(test_settings.sarvam_ledger_path, 15.0, 15.0, 30.0)
             ledger.set_balance(10.0)  # 10 credits -> TTS cap = 1.50, STT cap = 1.50, total cap = 3.00
             cache = PhraseAudioCache(test_settings.sarvam_cache_dir)
@@ -100,16 +102,31 @@ def cmd_selftest(live: bool = False) -> int:
             r1 = provider.synthesize("Namaskara Ramesh avare!", lang_code="kn-IN", strict=True)
             assert r1.provider == "sarvam_live" and not r1.cached and r1.credits_used > 0
 
-            # 2. Second identical call hits PhraseAudioCache at 0.0 credits
+            # 2. Second identical call hits persistent SQLite cache at 0.0 credits
             req_count_before = len(mock_state.requests_log)
             r2 = provider.synthesize("Namaskara Ramesh avare!", lang_code="kn-IN", strict=True)
             assert r2.provider == "sarvam_cached" and r2.cached and r2.credits_used == 0.0
             assert len(mock_state.requests_log) == req_count_before
 
-            # 3. Live mock STT call
+            # 3. Live mock STT call (saaras:v4 omitting 'mode')
             wav_b64 = base64.b64encode(make_silent_wav_bytes()).decode("ascii")
             s1 = provider.transcribe(wav_b64, lang_code="kn-IN", duration_seconds=4.0, strict=True)
             assert "approve" in s1.transcript.lower() and s1.credits_used > 0
+
+            # 3b. Live mock Chat call (sarvam-105b-conversations on /v1/chat/completions) + cache hit
+            c_txt1, c_cached1 = provider.chat_complete(
+                messages=[{"role": "user", "content": "Summarize sales"}],
+                lang_code="en-IN",
+                cache_key_text="selftest-chat-key",
+            )
+            assert "917" in c_txt1 and c_cached1 is False
+            req_count_chat = len(mock_state.requests_log)
+            c_txt2, c_cached2 = provider.chat_complete(
+                messages=[{"role": "user", "content": "Summarize sales"}],
+                lang_code="en-IN",
+                cache_key_text="selftest-chat-key",
+            )
+            assert c_txt2 == c_txt1 and c_cached2 is True and len(mock_state.requests_log) == req_count_chat
 
             # 4. Verify 15% TTS cap blocks oversized text (>500,000 chars @ 30/10k > 1.50 cap)
             try:

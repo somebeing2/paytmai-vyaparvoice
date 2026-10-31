@@ -34,6 +34,10 @@ class MockSarvamState:
     def __init__(self, expected_token: str = "mock-test-token-do-not-use-in-prod") -> None:
         self.expected_token = expected_token
         self.force_status: int = 200
+        self.next_chat_reply: str = (
+            "In 30 days your shop recorded 917 Paytm QR payments worth 174685 rupees. "
+            "Your average customer bill is 190 rupees."
+        )
         self.requests_log: List[Dict[str, object]] = []
 
 
@@ -94,9 +98,35 @@ def run_mock_sarvam_server(
                 if not is_multipart or b'name="file"' not in raw_bytes:
                     self._respond(400, {"error": "Expected multipart/form-data with 'file' field"})
                     return
+                if b"saaras:v4" in raw_bytes and b'name="mode"' in raw_bytes:
+                    self._respond(400, {"error": "Parameter 'mode' is only valid for saaras:v3, not saaras:v4"})
+                    return
                 lang = "kn-IN" if b"kn-IN" in raw_bytes else ("hi-IN" if b"hi-IN" in raw_bytes else "en-IN")
                 transcript = "Haudu approve win-back campaign" if lang == "kn-IN" else "Yes approve win-back campaign"
                 self._respond(200, {"transcript": transcript, "language_code": lang})
+            elif self.path == "/v1/chat/completions":
+                model_val = str(body.get("model", ""))
+                if model_val == "sarvam-m" or model_val not in ("sarvam-105b-conversations", "sarvam-105b"):
+                    self._respond(400, {"error": f"Unsupported or deprecated Sarvam chat model: '{model_val}'"})
+                    return
+                if self.headers.get("Authorization"):
+                    self._respond(400, {"error": "Do not combine Authorization header with api-subscription-key"})
+                    return
+                self._respond(
+                    200,
+                    {
+                        "id": "sarvam-chat-mock-001",
+                        "object": "chat.completion",
+                        "model": model_val,
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": {"role": "assistant", "content": state.next_chat_reply},
+                                "finish_reason": "stop",
+                            }
+                        ],
+                    },
+                )
             elif self.path == "/translate":
                 self._respond(200, {"translated_text": f"[MOCK-TR] {body.get('input', '')}"})
             else:

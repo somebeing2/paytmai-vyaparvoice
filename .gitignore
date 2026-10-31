@@ -7,17 +7,25 @@ venv/
 env/
 .pytest_cache/
 
+# Node / frontend tooling (if any local scripts are used)
+node_modules/
+
 # Runtime SQLite databases & isolated visitor sessions
-app/vyaparvoice.db
-app/sessions_db/
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
+app/vyaparvoice.db
+app/sessions_db/
 
-# Runtime ledgers & temporary exports (cached audio tracked only if explicitly committed)
-data/sarvam_credit_ledger.json
+# Local runtime data & temporary exports
+data/
 exports/
+
+# Committed pre-warmed fixed-phrase audio cache (tracked for Render ephemeral disk)
+!assets/
+!assets/prewarmed/
+!assets/prewarmed/**
 
 # Local environment secrets (NEVER commit)
 .env

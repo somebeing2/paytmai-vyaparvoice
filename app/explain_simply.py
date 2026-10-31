@@ -13,6 +13,7 @@ import httpx
 
 from .config import get_settings
 from .copy_lint import BANNED_MERCHANT_JARGON, find_formatting_violations
+from .providers.router import ProviderRouter
 from .security import assert_paid_calls_permitted
 
 _INDIC_DIGITS = str.maketrans(
@@ -264,53 +265,15 @@ def _try_llm_plain_explanation(
     lang: str,
     allowed_numbers: Set[str],
     required_numbers: Set[str],
-) -> Optional[Dict[str, str]]:
-    settings = get_settings()
-    try:
-        assert_paid_calls_permitted("Groq Explain Simply")
-    except PermissionError:
-        return None
-    if not settings.groq_live_allowed:
-        return None
-
-    lang_name = "Hindi" if lang == "hi" else ("Kannada" if lang == "kn" else "simple Indian English")
-    sys_prompt = (
-        f"Write 3 short everyday sentences in {lang_name} as JSON keys "
-        '{"cap_performance": "...", "customer_comparison": "...", "spend_vs_return": "..."}. '
-        "NEVER use jargon ('uplift', 'control group', 'break-even', 'treatment', 'holdout', 'incremental', 'ROI' are strictly forbidden). "
-        "NEVER invent, round, or change any number; copy numbers verbatim from FACTS."
+):
+    router = ProviderRouter()
+    return router.plain_explain_chat(
+        facts=facts,
+        lang=lang,
+        allowed_numbers=allowed_numbers,
+        required_numbers=required_numbers,
+        validate_fn=validate_llm_plain_output,
     )
-    try:
-        with httpx.Client(timeout=4.5) as client:
-            resp = client.post(
-                f"{settings.groq_base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {settings.groq_api_key}", "Content-Type": "application/json"},
-                json={
-                    "model": settings.groq_model,
-                    "temperature": 0.0,
-                    "max_tokens": 260,
-                    "messages": [
-                        {"role": "system", "content": sys_prompt},
-                        {"role": "user", "content": f"FACTS: {json.dumps(facts)}"},
-                    ],
-                },
-            )
-        if resp.status_code != 200:
-            return None
-        raw = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-        m = re.search(r"\{.*\}", raw, re.DOTALL)
-        if not m:
-            return None
-        parsed = json.loads(m.group(0))
-        if validate_llm_plain_output(parsed, allowed_numbers=allowed_numbers, required_numbers=required_numbers):
-            return {
-                "cap_performance": parsed["cap_performance"].strip(),
-                "customer_comparison": parsed["customer_comparison"].strip(),
-                "spend_vs_return": parsed["spend_vs_return"].strip(),
-            }
-    except Exception:
-        return None
-    return None
 
 
 def generate_plain_explanation(cmp_dict: Dict[str, Any], lang: str = "en") -> Dict[str, Any]:
@@ -329,15 +292,15 @@ def generate_plain_explanation(cmp_dict: Dict[str, Any], lang: str = "en") -> Di
         str(abs(facts["profit_before_fee_inr"])),
     }
 
-    llm_sections = _try_llm_plain_explanation(
+    llm_out = _try_llm_plain_explanation(
         facts=facts,
         lang=lg,
         allowed_numbers=allowed_numbers,
         required_numbers=required_numbers,
     )
-    if llm_sections is not None:
-        sections = llm_sections
-        provider_used = "groq_number_verified"
+    if llm_out is not None:
+        sections, prov_raw = llm_out
+        provider_used = f"{prov_raw}_number_verified"
     else:
         sections = render_static_plain_explanation(facts, lg)
         provider_used = "deterministic_template"

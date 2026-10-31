@@ -186,6 +186,11 @@ def init_and_seed_db(force_reset: bool = False, explicit_path: Optional[str] = N
                 requested_via TEXT NOT NULL,
                 ts TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS ledger_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             """
         )
 
@@ -279,6 +284,26 @@ def init_and_seed_db(force_reset: bool = False, explicit_path: Optional[str] = N
 
                 cust_idx += 1
 
+        # Ledger-only delayed-regular pattern on two 16-visit loyal_champion customers
+        # (preserves RNG sequence, 240 customers, 1,613 txns, 917 30d txns, and Rs 174,685 30d GMV):
+        # - CUST-009 (Sneha, 16 visits): 11 scans <=30d and 5 scans >30d, median gap 2.0d (mean 2.53d)
+        # - CUST-038 (Divya, 16 visits): 10 scans <=30d and 6 scans >30d, median gap 2.0d (mean 2.47d)
+        # Both last scanned 8 days ago during the dense 7-8 AM morning peak rush (8 scans in slot).
+        _delayed_schedules = {
+            "CUST-009": [8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 32, 35, 38, 42, 46],
+            "CUST-038": [8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 31, 33, 35, 38, 41, 45],
+        }
+        for _target_cid, _sched in _delayed_schedules.items():
+            _idxs = [idx for idx, row in enumerate(txns_rows) if row[1] == _target_cid]
+            _idxs.sort(key=lambda idx: txns_rows[idx][3])
+            if len(_idxs) == len(_sched):
+                for _pos, _row_idx in enumerate(_idxs):
+                    _tid, _cid, _amt, _old_d, _old_hr, _cat, _cmp, _sim = txns_rows[_row_idx]
+                    _new_d = _sched[_pos]
+                    _new_hr = 7 if _pos == 0 else _old_hr
+                    _new_cat = CATEGORIES[0][0] if _pos == 0 else _cat
+                    txns_rows[_row_idx] = (_tid, _cid, _amt, _new_d, _new_hr, _new_cat, _cmp, _sim)
+
         cur.executemany(
             "INSERT INTO customers VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             customers_rows,
@@ -289,6 +314,10 @@ def init_and_seed_db(force_reset: bool = False, explicit_path: Optional[str] = N
         )
 
         now_str = "2026-10-25 20:30:00"
+        cur.execute(
+            "INSERT OR REPLACE INTO ledger_meta (key, value) VALUES (?, ?)",
+            ("ledger_end_date", now_str[:10]),
+        )
         campaigns_seed = [
             (
                 "CMP-WINBACK-01",
@@ -360,12 +389,12 @@ def init_and_seed_db(force_reset: bool = False, explicit_path: Optional[str] = N
             ),
             (
                 "OPS-CARE-02",
-                "Serve Customers Better - Service Recovery",
-                "Peak-Hour Queue Delay Recovery for 2 Frequent Regulars",
-                "2 frequent regulars (Karthik and Divya, 12+ visits each) waited over 18 minutes during yesterday's 1:30 PM rush and left a 3-star Paytm payment feedback tag.",
-                "Two regular customers faced a lunch queue delay yesterday. Approve a polite Kannada and English apology note with a free Filter Coffee pass on next scan?",
-                "Send personalized merchant-signed apology plus Rs 30 coffee QR pass (Rs 60 total cost to protect Rs 4,200/month repeat sales).",
-                4200,
+                "Serve Customers Better - Regular Retention",
+                "Goodwill Coffee Pass for 2 Delayed Frequent Regulars",
+                "2 frequent regulars (Sneha and Divya, 16 visits each, usual ~2-day gap) have not scanned for 8 days, possibly after a busy morning rush (8 scans in the 7-8 AM window).",
+                "Two frequent regulars who usually visit every two days have not scanned for eight days, possibly after a busy morning rush. Approve a polite welcome-back note with a Rs 30 Filter Coffee pass on next scan?",
+                "Send polite welcome-back note plus Rs 30 coffee QR pass on next scan (Rs 60 max voucher cost; Rs 4,920 monthly spend at risk - historical spend, not guaranteed lift; synthetic ledger).",
+                4920,
                 "PENDING",
                 None,
             ),

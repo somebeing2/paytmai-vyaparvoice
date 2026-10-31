@@ -17,7 +17,9 @@ from .config import get_settings
 from .copy_lint import assert_valid_merchant_copy
 from .database import get_conn, get_db_lock
 from .explain_simply import generate_plain_explanation
-from .providers.groq_qa import get_groq_qa
+from datetime import date, timedelta
+from .providers.groq_qa import detect_common_qa_intent, get_groq_qa, render_deterministic_voice_intent
+from .providers.router import ProviderRouter
 from .providers.sarvam import SarvamProvider
 from .stats import (
     compute_bayesian_profit_posterior,
@@ -720,9 +722,14 @@ def get_dashboard_overview() -> Dict[str, Any]:
     ]
     campaigns = [_enrich_campaign_dict(cur, c) for c in campaigns_raw]
 
+    delayed_regulars = detect_delayed_regulars_from_ledger(cur)
     ops_actions = []
     for r in cur.execute("SELECT * FROM ops_actions ORDER BY action_id ASC").fetchall():
         od = dict(r)
+        if od["action_id"] == "OPS-CARE-02":
+            od["delayed_regulars"] = delayed_regulars
+            if delayed_regulars["customers_affected"] > 0:
+                od["est_value_inr"] = delayed_regulars["monthly_spend_at_risk_inr"]
         od["why_explanation"] = render_why_explanation(od["action_id"], od)
         ops_actions.append(od)
 
@@ -743,7 +750,22 @@ def get_dashboard_overview() -> Dict[str, Any]:
     audit_logs = [dict(r) for r in cur.execute("SELECT * FROM audit_logs ORDER BY id DESC LIMIT 16").fetchall()]
 
     evaluated_cmps = [c for c in campaigns if c.get("evaluation")]
-    total_incremental = sum(c["incremental_sales"] for c in campaigns)
+    total_incremental = int(
+        round(sum(c["evaluation"]["profit_waterfall"]["incremental_sales_inr"] for c in evaluated_cmps))
+    )
+    total_gross_profit = round(
+        sum(c["evaluation"]["profit_waterfall"]["incremental_gross_profit_inr"] for c in evaluated_cmps),
+        2,
+    )
+    total_cashback_spent = sum(int(c["budget_spent"]) for c in evaluated_cmps)
+    total_redeemed_bills = round(
+        sum(c["evaluation"]["profit_waterfall"]["funded_redeemed_sales_inr"] for c in evaluated_cmps),
+        2,
+    )
+    total_paytm_fee = round(
+        sum(c["evaluation"]["profit_waterfall"]["paytm_fee_on_all_redeemed_bills_inr"] for c in evaluated_cmps),
+        2,
+    )
     total_net_profit_pre_fee = round(
         sum(c["evaluation"]["profit_waterfall"]["net_profit_pre_fee_inr"] for c in evaluated_cmps),
         2,
@@ -782,10 +804,18 @@ def get_dashboard_overview() -> Dict[str, Any]:
             "total_customers": total_customers,
             "repeat_rate_pct": round((repeat_custs / max(1, total_customers)) * 100, 1),
             "verified_incremental_inr": total_incremental,
+            "total_gross_profit_inr": total_gross_profit,
+            "total_cashback_spent_inr": total_cashback_spent,
+            "total_redeemed_bills_inr": total_redeemed_bills,
+            "total_paytm_fee_inr": total_paytm_fee,
             "estimated_net_profit_pre_fee_inr": total_net_profit_pre_fee,
             "estimated_net_profit_post_fee_inr": total_net_profit_post_fee,
             "profit_state": profit_state,
-            "profit_formula": "Est. Profit Pre-Fee = (Extra Sales vs Non-Offer Group x 30% Assumed Shop Margin) - Cashback Spent; Post-Fee subtracts 5% Paytm Fee on all redeemed bills (Grade C financial assumption).",
+            "profit_formula": (
+                "Est. Profit Before Fee = (Extra Sales vs Non-Offer Holdout x 30% Assumed Shop Margin) - Cashback Spent; "
+                "Est. Profit After Fee = Profit Before Fee - (5% Paytm Promo Fee on All Redeemed Bills). "
+                "Grade C marks modelled financial estimates using assumed margin and fee."
+            ),
         },
         "hourly_series": hourly_series,
         "segments": segments,
@@ -1333,9 +1363,17 @@ def get_voice_briefing(lang: str = "en", detail: bool = False) -> Dict[str, Any]
         budget_spent=int(cmp_row["budget_spent"]),
     )
 
-    provider = SarvamProvider(settings=settings)
-    short_tts = provider.synthesize(brief["short_script"], lang_code=brief["lang_code"], strict=False)
-    detail_tts = provider.synthesize(brief["script"], lang_code=brief["lang_code"], strict=False)
+    router = ProviderRouter(settings=settings)
+    short_tts = router.sarvam.get_cached_tts(brief["short_script"], lang_code=brief["lang_code"])
+    detail_tts = router.sarvam.get_cached_tts(brief["script"], lang_code=brief["lang_code"])
+    if short_tts is None:
+        short_tts = router.webspeech.synthesize(
+            brief["short_script"], lang_code=brief["lang_code"], reason="On-demand TTS ready (click Speak or Pre-warm)"
+        )
+    if detail_tts is None:
+        detail_tts = router.webspeech.synthesize(
+            brief["script"], lang_code=brief["lang_code"], reason="On-demand TTS ready (click Speak or Pre-warm)"
+        )
     active_tts = detail_tts if detail else short_tts
 
     brief["tts_provider"] = active_tts.provider
@@ -1988,6 +2026,159 @@ def explain_campaign_simply(campaign_id: str, lang: str = "en") -> Dict[str, Any
     return generate_plain_explanation(enriched, lang=lang)
 
 
+def detect_delayed_regulars_from_ledger(cur) -> Dict[str, Any]:
+    """
+    Task A: Detect delayed frequent regulars strictly from ledger scan timestamps
+    (zero post-payment feedback or star-rating assumptions):
+      - 12+ historical visits (is_simulated = 0)
+      - Usual inter-visit gap around ~2 days (median gap in [1.5, 3.0] days, mean <= 3.0 days)
+      - Last scan occurred >= 8 days ago
+      - Last scan fell inside a peak-rush hour with unusually dense scans (>= 6 scans in slot)
+    """
+    peak_rush_hours = {7, 8, 9, 10, 12, 13, 14, 18, 19, 20, 21}
+    dense_rows = cur.execute(
+        """
+        SELECT days_ago, hour_of_day, COUNT(*) AS slot_scans
+        FROM transactions
+        WHERE is_simulated = 0
+        GROUP BY days_ago, hour_of_day
+        HAVING COUNT(*) >= 6
+        """
+    ).fetchall()
+    dense_map = {(int(r["days_ago"]), int(r["hour_of_day"])): int(r["slot_scans"]) for r in dense_rows}
+
+    cand_rows = cur.execute(
+        """
+        SELECT c.customer_id, c.name_hint, COUNT(t.txn_id) AS visit_count
+        FROM customers c
+        JOIN transactions t ON c.customer_id = t.customer_id AND t.is_simulated = 0
+        GROUP BY c.customer_id
+        HAVING COUNT(t.txn_id) >= 12
+        ORDER BY c.customer_id ASC
+        """
+    ).fetchall()
+
+    flagged = []
+    total_visits = 0
+    total_spend = 0
+    total_gap_sum = 0.0
+    total_gap_cnt = 0
+    all_gaps = []
+
+    for crow in cand_rows:
+        cid = crow["customer_id"]
+        txs = cur.execute(
+            """
+            SELECT amount, days_ago, hour_of_day
+            FROM transactions
+            WHERE customer_id = ? AND is_simulated = 0
+            ORDER BY days_ago ASC, hour_of_day DESC
+            """,
+            (cid,),
+        ).fetchall()
+        if len(txs) < 12:
+            continue
+        days_sorted = [int(t["days_ago"]) for t in txs]
+        last_days_ago = days_sorted[0]
+        if last_days_ago < 8:
+            continue
+
+        gaps = [days_sorted[i + 1] - days_sorted[i] for i in range(len(days_sorted) - 1)]
+        gaps_sorted = sorted(gaps)
+        mid = len(gaps_sorted) // 2
+        median_gap = (
+            float(gaps_sorted[mid])
+            if len(gaps_sorted) % 2 == 1
+            else (gaps_sorted[mid - 1] + gaps_sorted[mid]) / 2.0
+        )
+        mean_gap = sum(gaps) / max(1, len(gaps))
+        if not (1.5 <= median_gap <= 3.0 and mean_gap <= 3.0):
+            continue
+
+        # Check if any scan on last_days_ago fell in a dense peak-rush slot
+        last_day_hours = [int(t["hour_of_day"]) for t in txs if int(t["days_ago"]) == last_days_ago]
+        matched_slot = None
+        for hr in last_day_hours:
+            if hr in peak_rush_hours and (last_days_ago, hr) in dense_map:
+                matched_slot = (hr, dense_map[(last_days_ago, hr)])
+                break
+        if matched_slot is None:
+            continue
+
+        c_spend = sum(int(t["amount"]) for t in txs)
+        flagged.append(
+            {
+                "customer_id": cid,
+                "name_hint": crow["name_hint"],
+                "visits": len(txs),
+                "spend_inr": c_spend,
+                "last_seen_days": last_days_ago,
+                "median_gap_days": round(median_gap, 2),
+                "mean_gap_days": round(mean_gap, 2),
+                "rush_hour": matched_slot[0],
+                "rush_slot_scans": matched_slot[1],
+            }
+        )
+        total_visits += len(txs)
+        total_spend += c_spend
+        total_gap_sum += sum(gaps)
+        total_gap_cnt += len(gaps)
+        all_gaps.extend(gaps)
+
+    n_cust = len(flagged)
+    if n_cust == 0 or total_visits == 0 or total_gap_cnt == 0:
+        return {
+            "customers_affected": 0,
+            "customer_ids": [],
+            "customer_names": [],
+            "avg_bill_inr": 0.0,
+            "avg_bill_rounded_inr": 0,
+            "median_gap_days": 0.0,
+            "mean_gap_days": 0.0,
+            "visits_per_month": 0.0,
+            "last_seen_days": 0,
+            "rush_hour": 0,
+            "rush_window_scans": 0,
+            "monthly_spend_at_risk_inr": 0,
+            "inferred_cause": "possibly after a busy rush",
+            "note": "historical spend, not guaranteed lift; synthetic ledger",
+        }
+
+    all_gaps_sorted = sorted(all_gaps)
+    gmid = len(all_gaps_sorted) // 2
+    comb_median_gap = (
+        float(all_gaps_sorted[gmid])
+        if len(all_gaps_sorted) % 2 == 1
+        else (all_gaps_sorted[gmid - 1] + all_gaps_sorted[gmid]) / 2.0
+    )
+    comb_mean_gap = total_gap_sum / float(total_gap_cnt)
+    avg_bill_exact = total_spend / float(total_visits)
+    visits_per_month_exact = 30.0 / comb_mean_gap
+    avg_bill_rounded = int(round(avg_bill_exact))
+    visits_per_month_rounded = int(round(visits_per_month_exact))
+    # Display figure matches stated rounded arithmetic: n_cust x avg_bill_rounded x visits_per_month_rounded
+    monthly_risk = int(n_cust * avg_bill_rounded * visits_per_month_rounded)
+
+    return {
+        "customers_affected": n_cust,
+        "customer_ids": [f["customer_id"] for f in flagged],
+        "customer_names": [f["name_hint"] for f in flagged],
+        "avg_bill_inr": avg_bill_rounded,
+        "avg_bill_unrounded_inr": round(avg_bill_exact, 2),
+        "avg_bill_rounded_inr": avg_bill_rounded,
+        "median_gap_days": round(comb_median_gap, 1),
+        "mean_gap_days": round(comb_mean_gap, 2),
+        "visits_per_month": visits_per_month_rounded,
+        "visits_per_month_unrounded": round(visits_per_month_exact, 1),
+        "last_seen_days": min(f["last_seen_days"] for f in flagged),
+        "rush_hour": flagged[0]["rush_hour"],
+        "rush_window_scans": max(f["rush_slot_scans"] for f in flagged),
+        "monthly_spend_at_risk_inr": monthly_risk,
+        "inferred_cause": "possibly after a busy rush",
+        "note": "historical spend, not guaranteed lift; synthetic ledger",
+    }
+
+
 def execute_ops_action(action_id: str) -> Dict[str, Any]:
     lock = get_db_lock()
     with lock:
@@ -1998,10 +2189,16 @@ def execute_ops_action(action_id: str) -> Dict[str, Any]:
             conn.close()
             raise ValueError("Ops action not found")
 
+        delayed = detect_delayed_regulars_from_ledger(cur) if action_id == "OPS-CARE-02" else None
+        names_str = (
+            " and ".join(delayed["customer_names"])
+            if delayed and delayed["customer_names"]
+            else "2 delayed regulars"
+        )
         note = (
             "WhatsApp PO #BLR-904 dispatched to Sri Vinayaka Dairy (+18L Milk, +12kg Batter) for 6:00 AM delivery."
             if action_id == "OPS-STOCK-01"
-            else "Sent merchant-signed bilingual apology + Rs 30 Filter Coffee QR voucher to Karthik and Divya."
+            else f"Sent polite welcome-back note + Rs 30 Filter Coffee QR voucher to {names_str} (inferred post-rush delay)."
         )
         cur.execute(
             "UPDATE ops_actions SET status = 'EXECUTED', executed_note = ? WHERE action_id = ?",
@@ -2013,6 +2210,10 @@ def execute_ops_action(action_id: str) -> Dict[str, Any]:
         )
         conn.commit()
         updated = dict(cur.execute("SELECT * FROM ops_actions WHERE action_id = ?", (action_id,)).fetchone())
+        if action_id == "OPS-CARE-02" and delayed is not None:
+            updated["delayed_regulars"] = delayed
+            if delayed["customers_affected"] > 0:
+                updated["est_value_inr"] = delayed["monthly_spend_at_risk_inr"]
         updated["why_explanation"] = render_why_explanation(action_id, updated)
         conn.close()
         return updated
@@ -2221,6 +2422,29 @@ def handle_voice_command(utterance: str, lang: str = "en") -> Dict[str, Any]:
             "action_taken": "MERCHANT_QA_MILK_WHY",
         }
 
+    # 5b. Task E deterministic voice answers (customers today, profit, repeat/total customers, help) in EN / HI / KN
+    if any(p in text for p in ("help", "what can i say", "commands", "मदद", "सहायता", "ಸಹಾಯ", "ಏನು ಹೇಳಬಹುದು")):
+        help_map = {
+            "en": "You can ask about customers today, profit, or repeat customers, say approve to start the offer, or say a budget like 400 rupees for 2 days.",
+            "hi": "आप आज के ग्राहक, मुनाफा या नियमित ग्राहक पूछ सकते हैं, ऑफर शुरू करने के लिए हां बोलें, या 2 दिन के लिए 400 रुपये जैसा बजट बोलें।",
+            "kn": "ನೀವು ಇಂದಿನ ಗ್ರಾಹಕರು, ಲಾಭ ಅಥವಾ ಖಾಯಂ ಗ್ರಾಹಕರ ಬಗ್ಗೆ ಕೇಳಬಹುದು, ಆಫರ್ ಪ್ರಾರಂಭಿಸಲು ಹೌದು ಎನ್ನಿ, ಅಥವಾ 2 ದಿನಕ್ಕೆ 400 ರೂಪಾಯಿ ಬಜೆಟ್ ಹೇಳಿ.",
+        }
+        return {
+            "utterance": utterance,
+            "reply": assert_valid_merchant_copy(help_map[lg], check_sentence_length=(lg == "en")),
+            "action_taken": "VOICE_HELP",
+        }
+
+    det_intent = detect_common_qa_intent(utterance)
+    if det_intent in ("customers_today", "profit", "repeat_or_total_customers", "sales_summary"):
+        facts = build_sanitized_store_facts(ov_ctx)
+        ans = render_deterministic_voice_intent(det_intent, facts, lang=lg)
+        return {
+            "utterance": utterance,
+            "reply": assert_valid_merchant_copy(ans, check_sentence_length=(lg == "en")),
+            "action_taken": f"DETERMINISTIC_{det_intent.upper()}",
+        }
+
     # 6. Core operational & campaign execution commands
     approve_keywords = ["approve", "haan", "bhej", "haudu", "kaluhisi", "yes", "send", "ಹೌದು", "हाँ"]
     stock_keywords = ["milk", "dairy", "stock", "batter", "reorder", "supplier"]
@@ -2241,7 +2465,8 @@ def handle_voice_command(utterance: str, lang: str = "en") -> Dict[str, Any]:
             f"Early 48-hour check is ready. {res['treatment_returned']} out of {res['treatment_count']} customers with an offer came back, "
             f"compared to {res['holdout_returned']} of {res['holdout_count']} kept without an offer. "
             f"Your {res['max_budget']} rupee cashback limit stopped spending at {res['budget_spent']} rupees, "
-            f"leaving an estimated {pw['net_profit_pre_fee_inr']:.0f} rupees profit before fee."
+            f"leaving an estimated {pw['net_profit_pre_fee_inr']:.0f} rupees profit before the 5 percent Paytm promo fee "
+            f"and {pw['net_profit_post_fee_inr']:.2f} rupees after fee."
         )
     elif any(k in text for k in approve_keywords):
         cmp_res = approve_campaign("CMP-WINBACK-01", via=f"Voice ({lang.upper()})")
@@ -2255,11 +2480,16 @@ def handle_voice_command(utterance: str, lang: str = "en") -> Dict[str, Any]:
         )
     else:
         facts = build_sanitized_store_facts(ov_ctx)
-        qa_res = get_groq_qa().answer_question(utterance, facts, lang=lang)
+        qa_res = get_groq_qa().answer_question(utterance, facts, lang=lg)
         reply = qa_res.answer
-        action_taken = "GROQ_GROUNDED_QA" if qa_res.mode == "groq_grounded" else None
+        if qa_res.mode == "sarvam_grounded":
+            action_taken = "SARVAM_GROUNDED_QA"
+        elif qa_res.mode == "groq_grounded":
+            action_taken = "GROQ_GROUNDED_QA"
+        else:
+            action_taken = None
 
-    assert_valid_merchant_copy(reply, check_sentence_length=True)
+    assert_valid_merchant_copy(reply, check_sentence_length=(lg == "en"))
     return {
         "utterance": utterance,
         "reply": reply,
@@ -2267,21 +2497,127 @@ def handle_voice_command(utterance: str, lang: str = "en") -> Dict[str, Any]:
     }
 
 
+_EN_MONTH_NAMES = (
+    "",
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+)
+_HI_MONTH_NAMES = (
+    "",
+    "जनवरी", "फ़रवरी", "मार्च", "अप्रैल", "मई", "जून",
+    "जुलाई", "अगस्त", "सितंबर", "अक्टूबर", "नवंबर", "दिसंबर",
+)
+_KN_MONTH_NAMES = (
+    "",
+    "ಜನವರಿ", "ಫೆಬ್ರವರಿ", "ಮಾರ್ಚ್", "ಏಪ್ರಿಲ್", "ಮೇ", "ಜೂನ್",
+    "ಜುಲೈ", "ಆಗಸ್ಟ್", "ಸೆಪ್ಟೆಂಬರ್", "ಅಕ್ಟೋಬರ್", "ನವೆಂಬರ್", "ಡಿಸೆಂಬರ್",
+)
+
+
+def _query_latest_ledger_day_stats() -> Dict[str, Any]:
+    """
+    Task G.1: Read the latest day directly from the SQLite sample ledger
+    (ledger_meta.ledger_end_date minus MIN(days_ago), falling back to campaigns.created_at)
+    with zero hardcoded date strings, formatting '25 October 2026' dynamically across EN/HI/KN.
+    """
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        anchor_iso = None
+        try:
+            meta_row = cur.execute(
+                "SELECT value FROM ledger_meta WHERE key = 'ledger_end_date'"
+            ).fetchone()
+            if meta_row and meta_row["value"]:
+                anchor_iso = str(meta_row["value"]).strip()[:10]
+        except Exception:
+            anchor_iso = None
+
+        if not anchor_iso:
+            cmp_ts_row = cur.execute(
+                "SELECT substr(created_at, 1, 10) AS d FROM campaigns ORDER BY rowid ASC LIMIT 1"
+            ).fetchone()
+            anchor_iso = str(cmp_ts_row["d"]).strip()
+
+        anchor = date.fromisoformat(anchor_iso)
+        min_row = cur.execute(
+            "SELECT COALESCE(MIN(days_ago), 0) AS min_d FROM transactions WHERE is_simulated = 0"
+        ).fetchone()
+        min_d = int(min_row["min_d"] if min_row else 0)
+        dt = anchor - timedelta(days=min_d)
+        latest_dt = dt.isoformat()
+        day_row = cur.execute(
+            """
+            SELECT
+                COUNT(DISTINCT customer_id) AS uniq_custs,
+                COUNT(*) AS txns,
+                COALESCE(SUM(amount), 0) AS gmv
+            FROM transactions
+            WHERE is_simulated = 0 AND days_ago = ?
+            """,
+            (min_d,),
+        ).fetchone()
+        rep_row = cur.execute(
+            """
+            SELECT COUNT(*) AS c FROM (
+                SELECT customer_id FROM transactions WHERE is_simulated = 0 GROUP BY customer_id HAVING COUNT(*) >= 3
+            )
+            """
+        ).fetchone()
+        return {
+            "latest_ledger_date": latest_dt,
+            "latest_date_en": f"{dt.day} {_EN_MONTH_NAMES[dt.month]} {dt.year}",
+            "latest_date_hi": f"{dt.day} {_HI_MONTH_NAMES[dt.month]} {dt.year}",
+            "latest_date_kn": f"{dt.day} {_KN_MONTH_NAMES[dt.month]} {dt.year}",
+            "latest_day": dt.day,
+            "latest_year": dt.year,
+            "latest_days_ago": min_d,
+            "today_customers": int(day_row["uniq_custs"] if day_row else 0),
+            "today_txns": int(day_row["txns"] if day_row else 0),
+            "today_gmv": int(day_row["gmv"] if day_row else 0),
+            "repeat_customers": int(rep_row["c"] if rep_row else 0),
+        }
+    finally:
+        conn.close()
+
+
 def build_sanitized_store_facts(ov_ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Build strictly aggregate store-level facts with zero customer IDs, hashes, or PII."""
     ov = ov_ctx or get_dashboard_overview()
+    settings = get_settings()
     k = ov["kpis"]
     winback = ov["campaigns"][0]
     cr = winback.get("cap_risk", {})
+    day_stats = _query_latest_ledger_day_stats()
     facts: Dict[str, Any] = {
         "store_name": "Sri Krishna Darshini",
+        "latest_ledger_date": day_stats["latest_ledger_date"],
+        "latest_date_en": day_stats["latest_date_en"],
+        "latest_date_hi": day_stats["latest_date_hi"],
+        "latest_date_kn": day_stats["latest_date_kn"],
+        "latest_day": day_stats["latest_day"],
+        "latest_year": day_stats["latest_year"],
+        "today_customers": day_stats["today_customers"],
+        "today_txns": day_stats["today_txns"],
+        "today_gmv": day_stats["today_gmv"],
         "txn_count_30d": int(k["txn_count_30d"]),
         "total_60d_txns": int(k["total_60d_txns"]),
         "gmv_30d": int(round(float(k["gmv_30d"]))),
         "avg_ticket": float(k["avg_ticket"]),
         "avg_returning_bill": 217.5,
         "total_customers": int(k["total_customers"]),
+        "repeat_customers": day_stats["repeat_customers"],
         "repeat_rate_pct": float(k["repeat_rate_pct"]),
+        "assumed_margin_pct": int(round(float(settings.default_gross_margin_pct))),
+        "assumed_fee_pct": int(round(float(settings.paytm_promo_fee_pct))),
+        "profit_state": str(k.get("profit_state", "NO_OFFER_RUN_YET")),
+        "incremental_sales": int(k.get("verified_incremental_inr", 0)),
+        "gross_profit_inr": round(float(k.get("total_gross_profit_inr", 0.0)), 2),
+        "total_cashback_spent_inr": int(k.get("total_cashback_spent_inr", 0)),
+        "redeemed_bills_inr": round(float(k.get("total_redeemed_bills_inr", 0.0)), 2),
+        "paytm_fee_inr": round(float(k.get("total_paytm_fee_inr", 0.0)), 2),
+        "net_profit_pre_fee_inr": round(float(k.get("estimated_net_profit_pre_fee_inr", 0.0)), 2),
+        "net_profit_post_fee_inr": round(float(k.get("estimated_net_profit_post_fee_inr", 0.0)), 2),
         "lapsed_total": int(winback.get("total_segment_count", 48)),
         "eligible_lapsed": int(winback["treatment_count"] + winback["holdout_count"]),
         "treatment_count": int(winback["treatment_count"]),
@@ -2289,7 +2625,7 @@ def build_sanitized_store_facts(ov_ctx: Optional[Dict[str, Any]] = None) -> Dict
         "offer_rupees": int(winback["offer_rupees"]),
         "min_bill": int(winback["min_bill"]),
         "max_budget": int(winback["max_budget"]),
-        "budget_spent": int(winback["budget_spent"]),
+        "budget_spent": int(k.get("total_cashback_spent_inr", 0)) or int(winback["budget_spent"]),
         "suggested_cap_inr": int(cr.get("suggested_cap_inr", 400)),
         "dead_hour_drop_pct": 70,
         "extra_milk_liters": 18,
@@ -2297,11 +2633,8 @@ def build_sanitized_store_facts(ov_ctx: Optional[Dict[str, Any]] = None) -> Dict
     }
     ev = winback.get("evaluation")
     if isinstance(ev, dict):
-        pw = ev.get("profit_waterfall", {})
         facts["treatment_returned"] = int(winback.get("treatment_returned", 0))
         facts["holdout_returned"] = int(winback.get("holdout_returned", 0))
-        facts["net_profit_pre_fee_inr"] = round(float(pw.get("net_profit_pre_fee_inr", 0.0)), 1)
-        facts["net_profit_post_fee_inr"] = round(float(pw.get("net_profit_post_fee_inr", 0.0)), 1)
     return facts
 
 
@@ -2375,7 +2708,7 @@ def answer_merchant_question(question: str, lang: str = "en") -> Dict[str, Any]:
                 "chip_key": q_key,
             }
 
-    # 3. Open-ended store Q&A via optional keyless GroqGroundedQA (with deterministic fallback)
+    # 3. Open-ended store Q&A via Sarvam Primary -> Groq Secondary -> deterministic SQLite fallback
     facts = build_sanitized_store_facts(ov_ctx)
     res = get_groq_qa().answer_question(raw, facts, lang=lang)
     return {
@@ -2384,8 +2717,114 @@ def answer_merchant_question(question: str, lang: str = "en") -> Dict[str, Any]:
         "mode": res.mode,
         "provider": res.provider,
         "grounded_verified": res.grounded_verified,
+        "cached": res.cached,
         "fallback_reason": res.fallback_reason,
         "ungrounded_numbers": res.ungrounded_numbers,
         "lint_violations": res.lint_violations,
+    }
+
+
+def collect_fixed_prewarm_phrases() -> List[Dict[str, str]]:
+    """
+    Task C.2: Build the canonical list of fixed phrases across English, Hindi, and Kannada:
+      - briefing (short + detailed)
+      - 50% / 80% / 100% threshold alerts
+      - cap-reached message
+      - help message
+      - confirmation read-backs (prompt + confirmed + cancelled)
+    """
+    help_map = {
+        "en": "You can ask about customers today, profit, or repeat customers, say approve to start the offer, or say a budget like 400 rupees for 2 days.",
+        "hi": "आप आज के ग्राहक, मुनाफा या नियमित ग्राहक पूछ सकते हैं, ऑफर शुरू करने के लिए हां बोलें, या 2 दिन के लिए 400 रुपये जैसा बजट बोलें।",
+        "kn": "ನೀವು ಇಂದಿನ ಗ್ರಾಹಕರು, ಲಾಭ ಅಥವಾ ಖಾಯಂ ಗ್ರಾಹಕರ ಬಗ್ಗೆ ಕೇಳಬಹುದು, ಆಫರ್ ಪ್ರಾರಂಭಿಸಲು ಹೌದು ಎನ್ನಿ, ಅಥವಾ 2 ದಿನಕ್ಕೆ 400 ರೂಪಾಯಿ ಬಜೆಟ್ ಹೇಳಿ.",
+    }
+    alert50 = _format_threshold_alert_texts(50, 150, 300, 6)
+    alert80 = _format_threshold_alert_texts(80, 250, 300, 10)
+    alert100 = _format_threshold_alert_texts(100, 300, 300, 12)
+    cap_sim_sample = {
+        "max_budget": 300,
+        "offer_rupees": 25,
+        "budget_spent": 300,
+        "treatment_returned": 12,
+        "treatment_count": 32,
+        "holdout_returned": 1,
+        "holdout_count": 8,
+        "refused_redemptions": 0,
+        "gross_treatment_sales": 2610,
+        "cap_reached": 1,
+    }
+    cap_msgs = (_compute_cap_reached_summary(cap_sim_sample) or {}).get("messages", {})
+
+    items: List[Dict[str, str]] = []
+    for lg, lang_code in (("en", "en-IN"), ("hi", "hi-IN"), ("kn", "kn-IN")):
+        br_obj = get_voice_briefing(lg, detail=False)
+        br_short = br_obj["short_script"]
+        br_full = br_obj["detail_script"]
+        items.extend(
+            [
+                {"category": "briefing_short", "lang": lg, "lang_code": lang_code, "text": br_short},
+                {"category": "briefing_detail", "lang": lg, "lang_code": lang_code, "text": br_full},
+                {"category": "alert_50", "lang": lg, "lang_code": lang_code, "text": alert50[lg]},
+                {"category": "alert_80", "lang": lg, "lang_code": lang_code, "text": alert80[lg]},
+                {"category": "alert_100", "lang": lg, "lang_code": lang_code, "text": alert100[lg]},
+                {"category": "cap_reached", "lang": lg, "lang_code": lang_code, "text": cap_msgs.get(lg, alert100[lg])},
+                {"category": "help", "lang": lg, "lang_code": lang_code, "text": help_map[lg]},
+                {
+                    "category": "confirm_prompt_400",
+                    "lang": lg,
+                    "lang_code": lang_code,
+                    "text": render_budget_readback_prompt(400, "48_hours", lg),
+                },
+                {
+                    "category": "confirm_done_400",
+                    "lang": lg,
+                    "lang_code": lang_code,
+                    "text": render_budget_confirmed_message(300, 400, "48_hours", lg),
+                },
+                {
+                    "category": "confirm_cancelled",
+                    "lang": lg,
+                    "lang_code": lang_code,
+                    "text": render_budget_cancelled_message(300, lg),
+                },
+            ]
+        )
+    return items
+
+
+def prewarm_fixed_phrases(session_id: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Generate and cache TTS audio for all fixed phrases across EN, HI, KN via ProviderRouter.
+    Already-cached phrases cost 0 API calls; returns exact counts cached and newly synthesized.
+    """
+    router = ProviderRouter()
+    phrases = collect_fixed_prewarm_phrases()
+    already_cached = 0
+    newly_cached = 0
+    fallback_count = 0
+
+    for item in phrases:
+        existing = router.sarvam.get_cached_tts(item["text"], lang_code=item["lang_code"])
+        if existing is not None:
+            already_cached += 1
+            continue
+        res = router.synthesize_tts(item["text"], lang_code=item["lang_code"], strict=False, session_id=session_id)
+        if res.provider in ("sarvam_live", "groq_live"):
+            newly_cached += 1
+        elif res.provider in ("sarvam_cached", "groq_cached"):
+            already_cached += 1
+        else:
+            fallback_count += 1
+
+    cache_stats = router.persistent_cache.stats()
+    return {
+        "ok": True,
+        "total_fixed_phrases": len(phrases),
+        "already_cached": already_cached,
+        "newly_cached": newly_cached,
+        "cached_available": already_cached + newly_cached,
+        "fallback_unrecorded": fallback_count,
+        "cache_stats": cache_stats,
+        "provider_status": router.active_provider_badge(session_id=session_id),
     }
 

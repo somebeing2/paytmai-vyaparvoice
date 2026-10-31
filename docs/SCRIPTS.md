@@ -95,7 +95,7 @@ Because a single shop's 14-day cooldown pool refills at `~0.78` waves/month (`Rs
 - **2:00 - 4:15 (Live Full-Cycle Demo):**
   1. Toggle **Merchant View** (`EN author-checked, native review pending`; `KN/HI` `DRAFT - UNREVIEWED`; Grade A/B/C badges) vs **Technical View** (Fisher `p`, Wilson CIs, ITT invariance, cap-binding binomial math).
   2. Inspect the `42.2%` overrun warning on `CMP-WINBACK-01` (suggesting `Rs 400` cap), approve by voice, run the 48h simulator (`12/32` vs `1/8`, `cap_reached = True`, `refused_redemptions = 0`), and run the `Rs 150` tight-cap test (`6` paid, `6` refused, ITT unchanged).
-  3. Trigger `OPS-STOCK-01` (`+18L milk, +12kg batter` PO) and `OPS-CARE-02` (`Rs 30` queue-delay coffee pass).
+  3. Trigger `OPS-STOCK-01` (`+18L milk, +12kg batter` PO) and `OPS-CARE-02` (`Rs 30` coffee pass for 2 delayed regulars spotted from ledger scan gaps after a dense rush window).
 - **4:15 - 5:45 (Slide 4 + Appendix A7):** Define Intention-to-Treat, walk through the `+Rs 222` pre-fee / `+Rs 91.50` post-fee waterfall (`17.2%` / `24.7%` break-even margins; `+7.8 pp` / `+15.3 pp` break-even lifts), and show the pooled 50-shop power curve (`50.3%, 68.8%, 83.3%, 92.5%, 97.2%, 99.8%` across `+4, +5, +6, +7, +8, +10 pp`).
 - **5:45 - 7:00 (Slide 5 + Appendix A8/A9):** Reconcile `Rs 130.50` single-wave fee with `Rs 102/mo` steady-state ARPU (`~0.78` waves/mo), review the three Q2 FY27 ARR cases (`Rs 77.7 Cr`, `Rs 178.1 Cr`, `Rs 253.9 Cr`), and close with the exact A9 go/no-go decision rule (lower 95% bound of post-5%-fee net profit per nudged customer `> Rs 0` and observed lift `>` break-even lift).
 

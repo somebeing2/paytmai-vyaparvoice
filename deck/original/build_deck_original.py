@@ -440,8 +440,8 @@ def build_presentation():
             "Vernacular Post-Visit Delight",
             EMERALD,
             [
-                ("Queue-Delay Detection", "Spots unusually slow peak-hour clusters & 3-star Paytm payment feedback tags."),
-                ("Instant Goodwill Recovery", "Dispatches merchant-signed Kannada/Hindi apology + ₹30 coffee pass in 1 tap."),
+                ("Ledger Rush-Gap Detection", "Spots 12+ visit regulars (~2d gap) silent 8+ days, possibly after dense rush scans."),
+                ("Instant Goodwill Outreach", "Dispatches polite Kannada/Hindi welcome-back note + ₹30 coffee pass in 1 tap."),
                 ("Zero-App Loyalty Milestones", "Automatically celebrates a regular's 10th UPI scan on Soundbox audio."),
                 ("DPDP-Compliant Privacy", "Strictly honors customer opt-in & enforces 14-day anti-spam cooldowns."),
             ],

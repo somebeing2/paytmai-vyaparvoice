@@ -27,21 +27,25 @@ class SarvamCreditLedger:
         tts_cap_pct: float = 15.0,
         stt_cap_pct: float = 15.0,
         total_cap_pct: float = 30.0,
+        default_initial_balance: float = 0.0,
     ) -> None:
         self.ledger_path = Path(ledger_path)
         self.tts_cap_pct = float(tts_cap_pct)
         self.stt_cap_pct = float(stt_cap_pct)
         self.total_cap_pct = float(total_cap_pct)
+        self.default_initial_balance = max(0.0, float(default_initial_balance))
 
     def _now_iso(self) -> str:
         return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     def _default_state(self) -> Dict[str, Any]:
         return {
-            "initial_balance": 0.0,
+            "initial_balance": round(self.default_initial_balance, 4),
             "tts_spent": 0.0,
             "stt_spent": 0.0,
+            "chat_spent": 0.0,
             "translate_spent": 0.0,
+            "calls_made": 0,
             "halted": False,
             "halt_reason": None,
             "updated_at": self._now_iso(),
@@ -96,8 +100,9 @@ class SarvamCreditLedger:
         tot_cap = round(bal * (self.total_cap_pct / 100.0), 4)
         tts_spent = round(float(state["tts_spent"]), 4)
         stt_spent = round(float(state["stt_spent"]), 4)
+        chat_spent = round(float(state.get("chat_spent", 0.0)), 4)
         tr_spent = round(float(state["translate_spent"]), 4)
-        tot_spent = round(tts_spent + stt_spent + tr_spent, 4)
+        tot_spent = round(tts_spent + stt_spent + chat_spent + tr_spent, 4)
         return {
             "initial_balance": bal,
             "tts_cap": tts_cap,
@@ -105,8 +110,10 @@ class SarvamCreditLedger:
             "total_cap": tot_cap,
             "tts_spent": tts_spent,
             "stt_spent": stt_spent,
+            "chat_spent": chat_spent,
             "translate_spent": tr_spent,
             "total_spent": tot_spent,
+            "calls_made": int(state.get("calls_made", 0)),
             "remaining_within_cap": round(max(0.0, tot_cap - tot_spent), 4),
             "halted": bool(state["halted"]),
             "halt_reason": state["halt_reason"],
@@ -143,7 +150,7 @@ class SarvamCreditLedger:
                         f"STT cap ({self.stt_cap_pct}% = {s['stt_cap']} credits) exceeded: "
                         f"spent {s['stt_spent']} + est {round(estimated_cost, 4)} > {s['stt_cap']}."
                     )
-            elif capability != "translate":
+            elif capability not in ("translate", "chat"):
                 raise CreditCapExceededError(f"Unknown capability: {capability}")
 
     def record_spend(self, capability: str, cost: float, note: str = "") -> Dict[str, Any]:
@@ -152,6 +159,7 @@ class SarvamCreditLedger:
             state = self.load()
             key = f"{capability}_spent"
             state[key] = round(float(state.get(key, 0.0)) + float(cost), 6)
+            state["calls_made"] = int(state.get("calls_made", 0)) + 1
             state["events"].append(
                 {
                     "ts": self._now_iso(),

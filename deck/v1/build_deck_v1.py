@@ -552,9 +552,9 @@ def build_deck_v1():
             ("Cap Ledger (Stage 1)", "Tracks committed cashback passes separately from API credits."),
             ("Credit Signal (Planned)", "Feeds verified retention metrics to partner lending funnel."),
         ]),
-        ("PILLAR 3 : SERVE CUSTOMERS", "Privacy-Safe Service Recovery", [
-            ("Delay Tagging (Simulated)", "Flags peak-hour queue delays and low feedback tags."),
-            ("Goodwill Pass (Simulated)", "1-tap bilingual apology + Rs 30 next-scan coffee voucher."),
+        ("PILLAR 3 : SERVE CUSTOMERS", "Privacy-Safe Regular Retention", [
+            ("Ledger Gap Detection (Simulated)", "Spots 12+ visit regulars (~2d gap) silent 8+ days after dense rush scans."),
+            ("Goodwill Pass (Simulated)", "1-tap polite welcome-back note + Rs 30 next-scan coffee voucher."),
             ("Zero PII Leakage (Built)", "Merchant sees cohort counts/first-name hints, never raw phone numbers."),
             ("DPDP & Cooldown (Built)", "Hard opt-in filter and 14-day per-payer message cooldown."),
         ]),

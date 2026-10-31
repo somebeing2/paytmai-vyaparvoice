@@ -23,6 +23,7 @@ SECRET_PATTERNS = [
     re.compile(r"sk-[A-Za-z0-9]{20,}"),
     re.compile(r"SARVAM_API_KEY[ \t]*=[ \t]*['\"]?[A-Za-z0-9_\-]{12,}"),
     re.compile(r"GROQ_API_KEY[ \t]*=[ \t]*['\"]?[A-Za-z0-9_\-]{12,}"),
+    re.compile(r"DEMO_PIN[ \t]*=[ \t]*['\"]?[A-Za-z0-9_\-]{6,}"),
 ]
 
 HYGIENE_GLOBS = [
@@ -107,6 +108,7 @@ def main() -> int:
     run_cmd([sys.executable, "tests/test_stage2.py"], "Stage 2 guardrails, cap editor, scorecard & unit-econ tests")
     run_cmd([sys.executable, "tests/test_groq_guardrails.py"], "Task 15 keyless Groq grounded Q&A, zero-PII & fallback tests")
     run_cmd([sys.executable, "tests/test_finals_7tasks.py"], "Finals 7-task keyless localisation, voice, alerts, cap & plain-language suite")
+    run_cmd([sys.executable, "tests/test_sarvam_primary_modes.py"], "Sarvam-primary 4-mode router, cache, DEMO_PIN & deterministic voice suite")
     run_cmd([sys.executable, "tests/qa_battery.py"], "Baseline 21/21 QA battery backwards-compatibility")
     print("\nALL PREFLIGHT CHECKS PASSED.")
     return 0

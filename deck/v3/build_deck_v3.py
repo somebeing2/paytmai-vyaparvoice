@@ -658,9 +658,9 @@ def build_deck_v3():
             ("Dual Ledgers (Built)", "Separates merchant cashback stop from 30% Sarvam credit cap."),
             ("Credit Signal (Planned)", "Feeds verified cashflow stability to partner NBFC funnel."),
         ]),
-        ("PILLAR 3 : SERVE CUSTOMERS", "Privacy-Safe Service Recovery", [
-            ("Delay Tagging (Simulated)", "Flags peak-hour queue delays and 3-star feedback tags."),
-            ("Goodwill Pass (Simulated)", "1-tap bilingual apology + Rs 30 next-scan coffee voucher."),
+        ("PILLAR 3 : SERVE CUSTOMERS", "Privacy-Safe Regular Retention", [
+            ("Ledger Gap Detection (Built)", "Spots 12+ visit regulars (~2d gap) silent 8+ days after dense rush scans."),
+            ("Goodwill Pass (Simulated)", "1-tap polite welcome-back note + Rs 30 next-scan coffee voucher."),
             ("Zero PII Leakage (Built)", "No raw phone numbers or payer IDs ever leave SQLite."),
             ("DPDP & Cooldown (Built)", "Hard opt-in filter and 14-day per-payer anti-spam cooldown."),
         ]),

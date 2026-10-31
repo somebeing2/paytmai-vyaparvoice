@@ -687,7 +687,7 @@
     th { font-size: 11px; color: var(--muted); background: #f8fafc; }
     .sim-row { background: #ecfdf5; font-weight: 600; }
   </style>
-  <script src="/static/i18n.js"></script>
+  <script src="/static/i18n.js?v=1.5.1"></script>
 </head>
 <body>
 
@@ -788,6 +788,9 @@
       <div class="quick-voice-chips" style="margin-bottom:8px;">
         <div class="quick-label" id="lblQuickQ">Common Shop Questions:</div>
         <div class="chip-row">
+          <button class="v-chip q-chip" id="qChipToday" onclick="sendVoiceText('How many customers today?')">Customers today?</button>
+          <button class="v-chip q-chip" id="qChipProfit" onclick="sendVoiceText('What is my profit?')">What is my profit?</button>
+          <button class="v-chip q-chip" id="qChipRepeat" onclick="sendVoiceText('How many repeat customers?')">Repeat / total customers?</button>
           <button class="v-chip q-chip" id="qChipWhy40" onclick="sendVoiceText('Why these 40 customers?')">Why these 40 buyers?</button>
           <button class="v-chip q-chip" id="qChipMaxLoss" onclick="sendVoiceText('Can I lose more than 300 rupees?')">Can spend cross Rs 300?</button>
           <button class="v-chip q-chip" id="qChipAfterCap" onclick="sendVoiceText('What if a 13th customer comes after the cap?')">Buyer after limit?</button>
@@ -827,13 +830,36 @@
         </div>
         <div class="kpi-card highlight">
           <div class="kpi-label">
-            <span id="kpiLiftLabel">Est. Profit After Offer <span class="grade-badge grade-C">Grade C</span></span>
+            <span id="kpiLiftLabel">Est. Profit After Offer (Before Fee) <span class="grade-badge grade-C">Grade C</span></span>
             <button class="btn-why" id="btnKpiProfitWhy" style="padding:2px 8px;font-size:10.5px;" onclick="toggleWhy('KPI-PROFIT')">Why?</button>
           </div>
-          <div class="kpi-val" id="kpiLift">Rs 0</div>
-          <div class="kpi-sub" id="kpiLiftSub">No offer run yet (Rs 0 spent)</div>
+          <div class="kpi-val" id="kpiLift">+Rs 0</div>
+          <div class="kpi-sub" id="kpiLiftSub">No offer run yet (+Rs 0 before &amp; after 5% Paytm promo fee)</div>
           <div id="why-KPI-PROFIT" class="why-drawer" style="margin-top:8px;margin-bottom:0;font-size:11.5px;"></div>
         </div>
+      </div>
+
+      <div id="techProviderCard" class="card" style="display:none;background:#f8fafc;border:1.5px solid #0f172a;padding:12px 16px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+          <div>
+            <span class="pillar-tag">Technical &amp; Audit Provider Telemetry | Sarvam Primary -&gt; Groq -&gt; Web Speech</span>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:3px;">
+              <span style="font-size:12.5px;font-weight:800;color:#0f172a;">Provider in use:</span>
+              <span id="techProviderBadge" style="font-size:12px;font-weight:800;padding:3px 9px;border-radius:999px;background:#e0f2fe;color:#0369a1;border:1px solid #7dd3fc;">Checking...</span>
+              <span id="techSarvamCalls" style="font-size:11.5px;color:#334155;font-weight:700;">Sarvam calls: 0 / 60 (session: 0 / 25) | Mic cap: 10s</span>
+              <span id="techCacheCount" style="font-size:11.5px;color:#065f46;font-weight:700;">Cached items: 0</span>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <button class="cap-chip" id="btnTechPrewarm" style="border-color:#059669;color:#065f46;font-weight:800;" onclick="runTechPrewarm()">Pre-warm Fixed Phrases (EN/HI/KN)</button>
+            <div id="techDemoPinRow" style="display:none;gap:6px;align-items:center;">
+              <input id="techDemoPinInput" type="password" autocomplete="off" placeholder="DEMO_PIN" style="width:110px;padding:5px 8px;border:1px solid #94a3b8;border-radius:7px;font-size:12px;" onkeydown="if(event.key==='Enter'){submitDemoPin();}" />
+              <button class="cap-chip" id="btnUnlockDemoPin" style="border-color:#0284c7;color:#0369a1;" onclick="submitDemoPin()">Unlock Live Demo</button>
+              <button class="cap-chip" id="btnLockDemoPin" style="display:none;border-color:#dc2626;color:#b91c1c;" onclick="lockDemoPin()">Lock Demo</button>
+            </div>
+          </div>
+        </div>
+        <div id="techFallbackNotice" style="display:none;margin-top:8px;padding:6px 10px;border-radius:7px;background:#fef3c7;border:1px solid #fcd34d;color:#92400e;font-size:11.5px;font-weight:600;"></div>
       </div>
 
       <div id="techSimulateSpendCard" class="card" style="display:none;background:#f8fafc;border:1.5px solid #0284c7;padding:12px 16px;">
@@ -1117,6 +1143,9 @@
       document.getElementById('chipAttack').textContent = tMerchant('chip_attack');
 
       document.getElementById('lblQuickQ').textContent = tMerchant('quick_q_label');
+      document.getElementById('qChipToday').textContent = tMerchant('q_today');
+      document.getElementById('qChipProfit').textContent = tMerchant('q_profit');
+      document.getElementById('qChipRepeat').textContent = tMerchant('q_repeat');
       document.getElementById('qChipWhy40').textContent = tMerchant('q_why_40');
       document.getElementById('qChipMaxLoss').textContent = tMerchant('q_max_loss', { cap: activeCap });
       document.getElementById('qChipAfterCap').textContent = tMerchant('q_after_cap');
@@ -1211,8 +1240,11 @@
       viewMode = mode;
       document.getElementById('modeMerchant').classList.toggle('active', mode === 'merchant');
       document.getElementById('modeTechnical').classList.toggle('active', mode === 'technical');
+      const provCard = document.getElementById('techProviderCard');
+      if (provCard) provCard.style.display = (mode === 'technical') ? 'block' : 'none';
       const simCard = document.getElementById('techSimulateSpendCard');
       if (simCard) simCard.style.display = (mode === 'technical') ? 'block' : 'none';
+      if (mode === 'technical') loadProviderStatus();
       applyStaticChromeTranslations();
       renderAll();
       if (document.getElementById('panel-lab').classList.contains('active')) {
@@ -1220,6 +1252,130 @@
         runWhatIf();
         runBreakeven();
       }
+    }
+
+    let providerStatusData = null;
+    let activeMediaRecorder = null;
+    let activeRecordTimer = null;
+    const MAX_SPEECH_RECORD_MS = 10000;
+
+    function renderProviderTelemetry(ps) {
+      if (!ps) return;
+      providerStatusData = ps;
+      const badgeEl = document.getElementById('techProviderBadge');
+      const callsEl = document.getElementById('techSarvamCalls');
+      const cacheEl = document.getElementById('techCacheCount');
+      const noticeEl = document.getElementById('techFallbackNotice');
+      const pinRow = document.getElementById('techDemoPinRow');
+      const btnUnlock = document.getElementById('btnUnlockDemoPin');
+      const btnLock = document.getElementById('btnLockDemoPin');
+      const pinInp = document.getElementById('techDemoPinInput');
+
+      if (badgeEl) {
+        badgeEl.textContent = ps.provider_in_use || 'Web Speech + Static Templates';
+        if (ps.tier === 'sarvam') {
+          badgeEl.style.background = '#dcfce7';
+          badgeEl.style.color = '#166534';
+          badgeEl.style.borderColor = '#86efac';
+        } else if (ps.tier === 'groq') {
+          badgeEl.style.background = '#e0f2fe';
+          badgeEl.style.color = '#0369a1';
+          badgeEl.style.borderColor = '#7dd3fc';
+        } else {
+          badgeEl.style.background = '#f1f5f9';
+          badgeEl.style.color = '#334155';
+          badgeEl.style.borderColor = '#cbd5e1';
+        }
+      }
+      if (callsEl && ps.sarvam && ps.sarvam.calls) {
+        const c = ps.sarvam.calls;
+        callsEl.textContent = `Sarvam calls: ${c.global_calls} / ${c.global_max_calls} (session: ${c.session_calls} / ${c.session_max_calls}) | Mic cap: ${c.max_recording_seconds}s`;
+      }
+      if (cacheEl && ps.cache) {
+        cacheEl.textContent = `Cached items: ${ps.cache.total_cached_count} (TTS: ${ps.cache.tts_cached_count}, LLM: ${ps.cache.llm_cached_count})`;
+      }
+      if (pinRow) {
+        pinRow.style.display = (ps.public_deploy || ps.demo_pin_configured) ? 'flex' : 'none';
+        if (btnUnlock) btnUnlock.style.display = ps.demo_unlocked ? 'none' : 'inline-block';
+        if (btnLock) btnLock.style.display = ps.demo_unlocked ? 'inline-block' : 'none';
+        if (pinInp) pinInp.style.display = ps.demo_unlocked ? 'none' : 'inline-block';
+      }
+      if (noticeEl) {
+        if (ps.last_fallback_notice) {
+          noticeEl.style.display = 'block';
+          noticeEl.textContent = `Fallback notice: ${ps.last_fallback_notice}`;
+        } else {
+          noticeEl.style.display = 'none';
+          noticeEl.textContent = '';
+        }
+      }
+    }
+
+    async function loadProviderStatus() {
+      try {
+        const res = await fetch('/api/providers/status');
+        if (res.ok) {
+          const d = await res.json();
+          renderProviderTelemetry(d);
+        }
+      } catch (e) {}
+    }
+
+    async function runTechPrewarm() {
+      const btn = document.getElementById('btnTechPrewarm');
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Pre-warming...';
+      }
+      try {
+        const res = await fetch('/api/providers/prewarm', { method: 'POST' });
+        const d = await res.json();
+        if (res.ok) {
+          renderProviderTelemetry(d.provider_status);
+          const cacheEl = document.getElementById('techCacheCount');
+          if (cacheEl) {
+            cacheEl.textContent = `Pre-warmed: ${d.cached_available} / ${d.total_fixed_phrases} fixed phrases cached (new: ${d.newly_cached}, total DB: ${d.cache_stats.total_cached_count})`;
+          }
+          await loadBriefing(currentLang);
+        }
+      } catch (e) {}
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Pre-warm Fixed Phrases (EN/HI/KN)';
+      }
+    }
+
+    async function submitDemoPin() {
+      const inp = document.getElementById('techDemoPinInput');
+      if (!inp) return;
+      const pinVal = inp.value;
+      inp.value = '';
+      if (!pinVal) return;
+      const noticeEl = document.getElementById('techFallbackNotice');
+      try {
+        const res = await fetch('/api/demo/unlock', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin: pinVal })
+        });
+        const d = await res.json();
+        if (res.ok) {
+          renderProviderTelemetry(d.provider_status);
+        } else if (noticeEl) {
+          noticeEl.style.display = 'block';
+          noticeEl.textContent = d.detail || 'Demo PIN unlock rejected.';
+        }
+      } catch (e) {}
+    }
+
+    async function lockDemoPin() {
+      try {
+        const res = await fetch('/api/demo/lock', { method: 'POST' });
+        if (res.ok) {
+          const d = await res.json();
+          renderProviderTelemetry(d.provider_status);
+        }
+      } catch (e) {}
     }
 
     function switchTab(name, btn) {
@@ -1378,6 +1534,7 @@
         });
         if (res.ok) {
           const d = await res.json();
+          loadProviderStatus();
           if (d.audio_base64) {
             const player = document.getElementById('cachedAudioPlayer');
             player.src = `data:${d.mime_type || 'audio/wav'};base64,${d.audio_base64}`;
@@ -1434,13 +1591,7 @@
         player.play().catch(() => {});
         return;
       }
-      const voices = ('speechSynthesis' in window) ? window.speechSynthesis.getVoices() : [];
-      const hasLangVoice = voices.some(v => v.lang && v.lang.toLowerCase().startsWith(currentLang));
-      updateMissingVoiceNotice();
-      const textToRead = ((currentLang === 'kn' || currentLang === 'hi') && !hasLangVoice)
-        ? chosenRoman
-        : chosenScript;
-      speakText(textToRead, hasLangVoice ? currentBriefing.lang_code : 'en-IN');
+      speakViaActiveProvider(chosenScript, currentLang, chosenRoman);
     }
 
     async function sendVoiceText(utterance) {
@@ -1453,10 +1604,10 @@
       const box = document.getElementById('voiceReplyBox');
       box.style.display = 'block';
       box.innerHTML = `<strong>${tMerchant('reply_heard')}:</strong> "${data.utterance}"<br/><strong>${tMerchant('reply_action')}:</strong> <code>${data.action_taken || 'SUMMARY'}</code><br/><strong>${tMerchant('reply_soundbox')}:</strong> ${data.reply}`;
-      const targetLangCode = currentLang === 'hi' ? 'hi-IN' : (currentLang === 'kn' ? 'kn-IN' : 'en-IN');
-      speakText(data.reply, data.reply_lang_code || targetLangCode);
+      speakViaActiveProvider(data.reply, currentLang, data.reply);
       await loadBriefing(currentLang);
       await loadOverview();
+      loadProviderStatus();
     }
 
     function submitTypedUtterance() {
@@ -1467,34 +1618,126 @@
       inp.value = '';
     }
 
-    function startMicCommand() {
+    function runBrowserSpeechRecWith10sCap(onHeard, onFail) {
       const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SpeechRec) {
-        const box = document.getElementById('voiceReplyBox');
-        box.style.display = 'block';
-        box.innerHTML = `<strong>${tMerchant('mic_fallback_title')}</strong> ${tMerchant('mic_fallback_msg')}`;
-        document.getElementById('judgeUtterInput').focus();
+        onFail();
         return;
       }
       const rec = new SpeechRec();
       rec.lang = currentLang === 'hi' ? 'hi-IN' : (currentLang === 'kn' ? 'kn-IN' : 'en-IN');
+      rec.interimResults = false;
+      rec.maxAlternatives = 1;
       document.getElementById('ledDot').classList.add('speaking');
       document.getElementById('ledText').textContent = tMerchant('led_listening');
+      let settled = false;
+      const capTimer = setTimeout(() => {
+        try { rec.stop(); } catch (_) {}
+      }, MAX_SPEECH_RECORD_MS);
       rec.onresult = (ev) => {
+        settled = true;
+        clearTimeout(capTimer);
         document.getElementById('ledDot').classList.remove('speaking');
         document.getElementById('ledText').textContent = tMerchant('led_ready');
         const heard = ev.results[0][0].transcript;
-        document.getElementById('judgeUtterInput').value = heard;
-        sendVoiceText(heard);
+        onHeard(heard);
       };
       rec.onerror = () => {
+        settled = true;
+        clearTimeout(capTimer);
         document.getElementById('ledDot').classList.remove('speaking');
         document.getElementById('ledText').textContent = tMerchant('led_mic_blocked');
-        const box = document.getElementById('voiceReplyBox');
-        box.style.display = 'block';
-        box.innerHTML = `<strong>${tMerchant('mic_fallback_title')}</strong> ${tMerchant('mic_fallback_msg')}`;
+        onFail();
+      };
+      rec.onend = () => {
+        clearTimeout(capTimer);
+        if (!settled) {
+          document.getElementById('ledDot').classList.remove('speaking');
+          document.getElementById('ledText').textContent = tMerchant('led_ready');
+        }
       };
       rec.start();
+    }
+
+    async function captureSpokenInput(onHeard, onFail) {
+      if (activeMediaRecorder && activeMediaRecorder.state === 'recording') {
+        activeMediaRecorder.stop();
+        return;
+      }
+      const useServerStt = providerStatusData && (providerStatusData.tier === 'sarvam' || providerStatusData.tier === 'groq');
+      if (useServerStt && navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
+          const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+          activeMediaRecorder = recorder;
+          const chunks = [];
+          const startedAt = Date.now();
+          document.getElementById('ledDot').classList.add('speaking');
+          document.getElementById('ledText').textContent = tMerchant('led_recording_10s');
+
+          recorder.ondataavailable = (ev) => {
+            if (ev.data && ev.data.size > 0) chunks.push(ev.data);
+          };
+          recorder.onstop = async () => {
+            clearTimeout(activeRecordTimer);
+            activeMediaRecorder = null;
+            stream.getTracks().forEach(tr => tr.stop());
+            document.getElementById('ledDot').classList.remove('speaking');
+            document.getElementById('ledText').textContent = tMerchant('led_ready');
+            const durSec = Math.min(10.0, Math.max(0.5, (Date.now() - startedAt) / 1000.0));
+            const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+            const reader = new FileReader();
+            reader.onloadend = async () => {
+              const dataUrl = String(reader.result || '');
+              const b64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : '';
+              try {
+                const res = await fetch('/api/stt', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    audio_base64: b64,
+                    lang: currentLang,
+                    duration_seconds: durSec,
+                    mime_type: blob.type || 'audio/webm'
+                  })
+                });
+                const d = await res.json();
+                loadProviderStatus();
+                if (res.ok && d.transcript && d.transcript.trim()) {
+                  onHeard(d.transcript.trim());
+                  return;
+                }
+              } catch (e) {}
+              runBrowserSpeechRecWith10sCap(onHeard, onFail);
+            };
+            reader.readAsDataURL(blob);
+          };
+          recorder.start();
+          activeRecordTimer = setTimeout(() => {
+            if (recorder.state === 'recording') recorder.stop();
+          }, MAX_SPEECH_RECORD_MS);
+          return;
+        } catch (e) {
+          activeMediaRecorder = null;
+        }
+      }
+      runBrowserSpeechRecWith10sCap(onHeard, onFail);
+    }
+
+    function startMicCommand() {
+      captureSpokenInput(
+        (heard) => {
+          document.getElementById('judgeUtterInput').value = heard;
+          sendVoiceText(heard);
+        },
+        () => {
+          const box = document.getElementById('voiceReplyBox');
+          box.style.display = 'block';
+          box.innerHTML = `<strong>${tMerchant('mic_fallback_title')}</strong> ${tMerchant('mic_fallback_msg')}`;
+          document.getElementById('judgeUtterInput').focus();
+        }
+      );
     }
 
     let voiceBudgetFeedback = {};
@@ -1560,37 +1803,19 @@
     }
 
     function startVerbalBudgetMic(campaignId, autoSubmitYesNo = false) {
-      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      const inp = document.getElementById('voice-budget-txt-' + campaignId);
-      if (!SR) {
-        const msg = tMerchant('mic_fallback_msg');
-        voiceBudgetFeedback[campaignId] = { error: false, text: msg };
-        renderAll();
-        const targetInp = document.getElementById('voice-budget-txt-' + campaignId);
-        if (targetInp) targetInp.focus();
-        return;
-      }
-      const rec = new SR();
-      rec.lang = currentLang === 'kn' ? 'kn-IN' : (currentLang === 'hi' ? 'hi-IN' : 'en-IN');
-      rec.interimResults = false;
-      rec.maxAlternatives = 1;
-      document.getElementById('ledDot').classList.add('speaking');
-      document.getElementById('ledText').textContent = tMerchant('led_listening');
-      rec.onresult = (ev) => {
-        document.getElementById('ledDot').classList.remove('speaking');
-        document.getElementById('ledText').textContent = tMerchant('led_ready');
-        const heard = ev.results[0][0].transcript;
-        const freshInp = document.getElementById('voice-budget-txt-' + campaignId);
-        if (freshInp) freshInp.value = heard;
-        submitVerbalBudget(campaignId);
-      };
-      rec.onerror = () => {
-        document.getElementById('ledDot').classList.remove('speaking');
-        document.getElementById('ledText').textContent = tMerchant('led_mic_blocked');
-        voiceBudgetFeedback[campaignId] = { error: false, text: tMerchant('mic_fallback_msg') };
-        renderAll();
-      };
-      rec.start();
+      captureSpokenInput(
+        (heard) => {
+          const freshInp = document.getElementById('voice-budget-txt-' + campaignId);
+          if (freshInp) freshInp.value = heard;
+          submitVerbalBudget(campaignId);
+        },
+        () => {
+          voiceBudgetFeedback[campaignId] = { error: false, text: tMerchant('mic_fallback_msg') };
+          renderAll();
+          const targetInp = document.getElementById('voice-budget-txt-' + campaignId);
+          if (targetInp) targetInp.focus();
+        }
+      );
     }
 
     async function confirmPendingCap(campaignId, doConfirm, viaSource = 'dashboard') {
@@ -2054,22 +2279,21 @@
       const totalIncSales = evaluatedCmps.reduce((acc, c) => acc + c.evaluation.profit_waterfall.incremental_sales_inr, 0);
       const totalGrossMargin = evaluatedCmps.reduce((acc, c) => acc + c.evaluation.profit_waterfall.incremental_gross_profit_inr, 0);
 
+      const zeroSignedStr = ((uiLang() === 'hi' || uiLang() === 'kn') ? '+\u20B90' : '+Rs 0');
       if (isTech) {
-        document.getElementById('kpiLiftLabel').innerHTML = `Sim. Incremental Sales <span class="grade-badge grade-B">Grade B</span>`;
-        document.getElementById('kpiLift').textContent = evaluatedCmps.length === 0 ? fmtInr(0, false) : fmtInr(k.verified_incremental_inr, true);
+        document.getElementById('kpiLiftLabel').innerHTML = `Est. Profit After Offer (Before Fee) <span class="grade-badge grade-C">Grade C</span>`;
+        document.getElementById('kpiLift').textContent = evaluatedCmps.length === 0 ? '+Rs 0' : fmtInr(k.estimated_net_profit_pre_fee_inr, true);
         document.getElementById('kpiLiftSub').textContent = evaluatedCmps.length === 0
-          ? 'Est. Profit Pre-Fee (Grade C): Rs 0 (No offer run yet)'
-          : (Math.abs(k.estimated_net_profit_pre_fee_inr) < 0.01
-              ? 'Est. Profit Pre-Fee (Grade C): Rs 0 (Break-even)'
-              : `Est. Net Profit Pre-Fee (Grade C): ${fmtInr(k.estimated_net_profit_pre_fee_inr, true)}`);
+          ? 'After 5% Paytm promo fee: +Rs 0 | Sim. Incremental Sales (Grade B): Rs 0 (No offer run yet)'
+          : `After 5% Paytm promo fee: ${fmtInr(totalPostFee, true, 2)} | Sim. Incremental Sales (Grade B): ${fmtInr(k.verified_incremental_inr, true)}`;
       } else {
         document.getElementById('kpiLiftLabel').innerHTML = `${t('kpi_profit_title')} <span class="grade-badge grade-C">${t('grade_c')}</span>`;
         if (evaluatedCmps.length === 0) {
-          document.getElementById('kpiLift').textContent = fmtInr(0, false);
+          document.getElementById('kpiLift').textContent = zeroSignedStr;
           document.getElementById('kpiLiftSub').textContent = t('kpi_profit_sub_idle');
         } else if (Math.abs(k.estimated_net_profit_pre_fee_inr) < 0.01) {
-          document.getElementById('kpiLift').textContent = fmtInr(0, false);
-          document.getElementById('kpiLiftSub').textContent = t('kpi_profit_sub_breakeven');
+          document.getElementById('kpiLift').textContent = zeroSignedStr;
+          document.getElementById('kpiLiftSub').textContent = t('kpi_profit_sub_breakeven', { postFee: fmtInr(totalPostFee, true, 2) });
         } else {
           document.getElementById('kpiLift').textContent = fmtInr(k.estimated_net_profit_pre_fee_inr, true);
           document.getElementById('kpiLiftSub').textContent = t('kpi_profit_sub_active', { postFee: fmtInr(totalPostFee, true, 2) });
@@ -2473,6 +2697,17 @@
         const opStep = isTech ? o.recommended_step : t(`ops_${safeOpKey}_step`);
         const opWhy = isTech ? o.why_explanation.technical_provenance : t(`ops_${safeOpKey}_why`);
         const opDone = isTech ? o.executed_note : t(`ops_${safeOpKey}_done`);
+        const dr = o.delayed_regulars || (o.why_explanation && o.why_explanation.breakdown) || null;
+        const drBreakdownHtml = (o.action_id === 'OPS-CARE-02' && dr)
+          ? `<div style="margin-top:6px;padding-top:6px;border-top:1px dashed #cbd5e1;font-size:12px;color:#334155;">${
+              t('ops_risk_breakdown_lbl', {
+                cust: fmtNum(dr.customers_affected || 2),
+                avgBill: fmtInr(Math.round(dr.avg_bill_inr || dr.average_bill_inr || 205)),
+                vpm: fmtNum(dr.visits_per_month || 12),
+                risk: fmtInr(dr.monthly_spend_at_risk_inr || o.est_value_inr)
+              })
+            }</div>`
+          : '';
         return `
           <div class="card">
             <div class="card-head">
@@ -2487,6 +2722,7 @@
             </div>
             <div id="why-${o.action_id}" class="why-drawer ${whyOpen ? 'open' : ''}">
               <strong>${t('why_heading')}</strong> ${opWhy}
+              ${drBreakdownHtml}
             </div>
             <p style="font-size:13.5px;color:#334155;margin-bottom:10px;">${opSummary}</p>
             <div style="background:#f8fafc;border-left:3px solid #00baf2;padding:9px 12px;font-size:12.5px;margin-bottom:12px;">
@@ -2554,7 +2790,8 @@
       });
       const data = await res.json();
       box.innerHTML = `<strong>[${data.provider || 'SQLite'}]</strong> ${data.answer}`;
-      speakText(data.answer, currentLang === 'hi' ? 'hi-IN' : (currentLang === 'kn' ? 'kn-IN' : 'en-IN'));
+      speakViaActiveProvider(data.answer, currentLang, data.answer);
+      loadProviderStatus();
       if (data.mode === 'guardrail_blocked') {
         await loadOverview();
       }
@@ -2565,6 +2802,7 @@
         window.speechSynthesis.onvoiceschanged = updateMissingVoiceNotice;
       }
       await loadOverview();
+      await loadProviderStatus();
       let initLang = 'kn';
       try {
         const saved = localStorage.getItem(LANG_STORAGE_KEY);

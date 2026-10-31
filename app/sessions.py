@@ -11,6 +11,7 @@ from starlette.responses import Response
 
 from .config import get_settings
 from .database import clone_or_seed_session_db, init_and_seed_db, release_db_lock, use_db_path
+from .security import set_current_request_session
 
 _VALID_SID_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 _SESSION_LOCK = threading.RLock()
@@ -183,6 +184,12 @@ class SessionIsolationMiddleware(BaseHTTPMiddleware):
             or path.startswith("/static")
             or not settings.isolate_visitors
         ):
+            fallback_sid = (
+                request.headers.get(settings.session_header_name)
+                or request.cookies.get(settings.session_cookie_name)
+                or "default-session"
+            )
+            set_current_request_session(fallback_sid)
             return await call_next(request)
 
         raw_sid = (
@@ -201,6 +208,7 @@ class SessionIsolationMiddleware(BaseHTTPMiddleware):
                 evict_stale_sessions(protect_sid=sid)
 
         request.state.demo_session_id = sid
+        set_current_request_session(sid)
         with use_db_path(str(db_path)):
             response = await call_next(request)
 

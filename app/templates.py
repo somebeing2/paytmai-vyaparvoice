@@ -347,24 +347,51 @@ def render_why_explanation(item_id: str, ctx: Dict[str, Any]) -> Dict[str, str]:
         )
         tech = (
             "Ops Rule: Saturday 7-10 AM historical scan velocity +28% vs Mon-Thu baseline; "
-            "WhatsApp PO #BLR-904 pre-filled for Sri Vinayaka Dairy (est. Rs 4,100 revenue protected)."
+            "WhatsApp PO #BLR-904 pre-filled for Sri Vinayaka Dairy (est. Rs 2,450 monthly spend at risk)."
         )
     else:
+        dr = ctx.get("delayed_regulars") or {}
+        n_cust = int(dr.get("customers_affected", 2))
+        avg_b_rnd = int(dr.get("avg_bill_rounded_inr", round(float(dr.get("avg_bill_inr", 205)))))
+        avg_b_unrnd = float(dr.get("avg_bill_unrounded_inr", avg_b_rnd))
+        vpm_disp = int(round(float(dr.get("visits_per_month", 12))))
+        risk_inr = int(n_cust * avg_b_rnd * vpm_disp)
+        last_d = int(dr.get("last_seen_days", 8))
+        rush_scans = int(dr.get("rush_window_scans", 8))
+        names_lbl = ", ".join(dr.get("customer_names") or ["Sneha", "Divya"])
         plain = (
-            "Two long-time morning regulars waited longer during peak rush and stopped visiting this week. "
-            "Sending a polite apology with a 30 rupee coffee voucher brings back high-visit regulars early."
+            f"{n_cust} regulars with 12 or more visits and a usual 2 day gap have not scanned for {last_d} days, possibly after a busy rush. "
+            f"Monthly spend at risk is {risk_inr:,} rupees ({n_cust} customers x {avg_b_rnd} rupee average bill x {vpm_disp} visits per month). "
+            "Historical spend, not guaranteed lift; synthetic ledger."
         )
         tech = (
-            "Ops Rule: loyal_champion recency spike >7d after peak-queue cluster; "
-            "targeted Rs 30 service-recovery voucher for 2 flagged regulars."
+            f"Ledger-Only Rule (derived strictly from QR scan timestamps): visits>=12, usual_gap~2.0d (mean {dr.get('mean_gap_days', 2.5)}d), "
+            f"last_scan={last_d}d ago in dense peak-rush slot ({rush_scans} scans >=6), cause inferred ('possibly after a busy rush'). "
+            f"Arithmetic: {n_cust} customers ({names_lbl}) x Rs {avg_b_rnd} rounded avg bill (unrounded Rs {avg_b_unrnd:.2f}) x {vpm_disp} visits/month = Rs {risk_inr:,} Monthly spend at risk "
+            "(historical spend, not guaranteed lift; synthetic ledger)."
         )
 
-    return {
+    out = {
         "item_id": item_id,
         "merchant_plain": assert_valid_merchant_copy(plain, check_sentence_length=True),
         "technical_provenance": tech,
         "evidence_grade": "A",
     }
+    if item_id == "OPS-CARE-02":
+        dr = ctx.get("delayed_regulars") or {}
+        n_c = int(dr.get("customers_affected", 2))
+        avg_r = int(dr.get("avg_bill_rounded_inr", round(float(dr.get("avg_bill_inr", 205)))))
+        vpm_r = int(round(float(dr.get("visits_per_month", 12))))
+        out["breakdown"] = {
+            "customers_affected": n_c,
+            "average_bill_inr": avg_r,
+            "average_bill_unrounded_inr": float(dr.get("avg_bill_unrounded_inr", 204.69)),
+            "visits_per_month": vpm_r,
+            "monthly_spend_at_risk_inr": int(n_c * avg_r * vpm_r),
+            "inferred_cause": "possibly after a busy rush",
+            "note": "historical spend, not guaranteed lift; synthetic ledger",
+        }
+    return out
 
 
 def render_merchant_question_answer(question_key: str, ctx: Dict[str, Any]) -> str:

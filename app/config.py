@@ -105,17 +105,31 @@ class Settings:
     sarvam_tts_cost_per_10k_inr: float = 30.0
     sarvam_speakers: Dict[str, str] = field(default_factory=dict)
     sarvam_stt_endpoint: str = "/speech-to-text"
-    sarvam_stt_model: str = "saaras:v3"
+    sarvam_stt_model: str = "saaras:v4"
     sarvam_stt_cost_per_hour_inr: float = 30.0
+    sarvam_chat_endpoint: str = "/v1/chat/completions"
+    sarvam_chat_model: str = "sarvam-105b-conversations"
+    sarvam_chat_cost_credits: float = 0.15
     sarvam_translate_endpoint: str = "/translate"
     sarvam_translate_cost_per_10k_inr: float = 20.0
     sarvam_tts_cap_pct: float = 15.0
     sarvam_stt_cap_pct: float = 15.0
     sarvam_total_cap_pct: float = 30.0
+    sarvam_initial_balance: float = 500.0
+    sarvam_max_calls: int = 60
+    sarvam_session_max_calls: int = 35
+    sarvam_max_recording_seconds: float = 10.0
     sarvam_ledger_path: Path = REPO_ROOT / "data" / "sarvam_credit_ledger.json"
     sarvam_cache_dir: Path = REPO_ROOT / "data" / "audio_cache"
+    provider_cache_db_path: Path = REPO_ROOT / "data" / "provider_cache.db"
+    prewarmed_assets_dir: Path = REPO_ROOT / "assets" / "prewarmed"
 
-    # Optional Groq free-tier English Q&A
+    # Public Render demo unlock & rate limiting
+    demo_pin: str = ""
+    demo_live_flag: bool = False
+    rate_limit_per_minute: int = 30
+
+    # Secondary Groq provider (Chat + STT + English TTS fallback)
     groq_enabled: bool = False
     groq_api_key: str = ""
     groq_base_url: str = "https://api.groq.com/openai/v1"
@@ -125,15 +139,16 @@ class Settings:
     max_cap_inr: int = 2500
     cap_presets_inr: tuple = (150, 250, 300, 400, 500)
 
-    # Task 15 Optional Groq grounded Q&A parameters
-    groq_model: str = "llama-3.1-8b-instant"
+    # Secondary Groq model parameters
+    groq_model: str = "openai/gpt-oss-20b"
+    groq_stt_model: str = "whisper-large-v3-turbo"
+    groq_tts_model: str = "canopylabs/orpheus-v1-english"
+    groq_tts_voice: str = "troy"
     groq_timeout_seconds: float = 6.0
     groq_max_calls_per_session: int = 20
 
-    @property
-    def sarvam_live_allowed(self) -> bool:
-        """Live Sarvam calls are strictly forbidden on public deployments."""
-        if self.public_deploy:
+    def is_sarvam_live_allowed(self, demo_unlocked: bool = False) -> bool:
+        if self.public_deploy and not (demo_unlocked or self.demo_live_flag):
             return False
         return bool(
             self.sarvam_enabled
@@ -141,12 +156,20 @@ class Settings:
             and len(self.sarvam_api_key.strip()) > 0
         )
 
-    @property
-    def groq_live_allowed(self) -> bool:
-        """Live Groq calls are strictly forbidden on public deployments."""
-        if self.public_deploy:
+    def is_groq_live_allowed(self, demo_unlocked: bool = False) -> bool:
+        if self.public_deploy and not (demo_unlocked or self.demo_live_flag):
             return False
         return bool(self.groq_enabled and len(self.groq_api_key.strip()) > 0)
+
+    @property
+    def sarvam_live_allowed(self) -> bool:
+        """Live Sarvam calls require local mode or active server/PIN unlock when PUBLIC_DEPLOY=true."""
+        return self.is_sarvam_live_allowed(demo_unlocked=False)
+
+    @property
+    def groq_live_allowed(self) -> bool:
+        """Live Groq calls require local mode or active server/PIN unlock when PUBLIC_DEPLOY=true."""
+        return self.is_groq_live_allowed(demo_unlocked=False)
 
 
 _CACHED_SETTINGS: Optional[Settings] = None
@@ -169,6 +192,7 @@ def load_settings(force_reload: bool = False) -> Settings:
 
     tts_sec = s_cfg.get("tts", {})
     stt_sec = s_cfg.get("stt", {})
+    chat_sec = s_cfg.get("chat", {})
     tr_sec = s_cfg.get("translate", {})
     cap_sec = s_cfg.get("credit_caps", {})
 
@@ -182,11 +206,21 @@ def load_settings(force_reload: bool = False) -> Settings:
 
     ledger_rel = cap_sec.get("ledger_path", "data/sarvam_credit_ledger.json")
     cache_rel = cap_sec.get("cache_dir", "data/audio_cache")
+    cache_db_rel = cap_sec.get("cache_db_path", "data/provider_cache.db")
     sess_rel = sess_sec.get("storage_dir", "app/sessions_db")
 
     ledger_path = Path(_env_str("SARVAM_LEDGER_PATH", str(REPO_ROOT / ledger_rel)))
     cache_dir = Path(_env_str("SARVAM_CACHE_DIR", str(REPO_ROOT / cache_rel)))
     sess_dir = Path(_env_str("SESSION_STORAGE_DIR", str(REPO_ROOT / sess_rel)))
+    default_cache_db = (
+        str(sess_dir / "_provider_cache.db")
+        if ("SESSION_STORAGE_DIR" in os.environ and "PROVIDER_CACHE_DB_PATH" not in os.environ)
+        else str(REPO_ROOT / cache_db_rel)
+    )
+    cache_db_path = Path(_env_str("PROVIDER_CACHE_DB_PATH", default_cache_db))
+    prewarmed_dir_path = Path(
+        _env_str("PREWARMED_ASSETS_DIR", str(REPO_ROOT / "assets" / "prewarmed"))
+    )
 
     sarvam_key_val = os.environ.get("SARVAM_API_KEY", "").strip()
     groq_key_val = os.environ.get("GROQ_API_KEY", "").strip()
@@ -199,9 +233,9 @@ def load_settings(force_reload: bool = False) -> Settings:
     sarvam_en_val = _parse_bool(raw_sarvam_en, sarvam_switch_on) and stt_tts_prov not in ("webspeech", "browser", "disabled", "off")
     sarvam_live_val = _parse_bool(raw_sarvam_live, sarvam_switch_on) and stt_tts_prov not in ("webspeech", "browser", "disabled", "off")
 
-    groq_switch_on = llm_prov in ("auto", "groq") and bool(groq_key_val)
+    groq_switch_on = (llm_prov in ("auto", "groq") or stt_tts_prov in ("auto", "groq")) and bool(groq_key_val)
     raw_groq_en = os.environ.get("GROQ_ENABLED")
-    groq_en_val = _parse_bool(raw_groq_en, groq_switch_on or bool(groq_sec.get("enabled", False))) and llm_prov not in ("static", "disabled", "off", "sarvam")
+    groq_en_val = _parse_bool(raw_groq_en, groq_switch_on or bool(groq_sec.get("enabled", False))) and llm_prov not in ("static", "disabled", "off")
 
     _CACHED_SETTINGS = Settings(
         app_name=str(app_sec.get("name", "PaytmAI VyaparVoice")),
@@ -241,27 +275,48 @@ def load_settings(force_reload: bool = False) -> Settings:
         sarvam_live_calls_enabled=sarvam_live_val,
         sarvam_api_key=sarvam_key_val,
         sarvam_base_url=_env_str("SARVAM_BASE_URL", str(s_cfg.get("base_url", "https://api.sarvam.ai"))).rstrip("/"),
-        sarvam_timeout_seconds=float(s_cfg.get("timeout_seconds", 8.0)),
+        sarvam_timeout_seconds=_env_float("SARVAM_TIMEOUT_SECONDS", float(s_cfg.get("timeout_seconds", 8.0))),
         sarvam_tts_endpoint=str(tts_sec.get("endpoint", "/text-to-speech")),
-        sarvam_tts_model=str(tts_sec.get("model", "bulbul:v3")),
+        sarvam_tts_model=_env_str("SARVAM_TTS_MODEL", str(tts_sec.get("model", "bulbul:v3"))),
         sarvam_tts_cost_per_10k_inr=float(tts_sec.get("cost_per_10k_chars_inr", 30.0)),
         sarvam_speakers=dict(tts_sec.get("speakers", {"en-IN": "priya", "kn-IN": "priya", "hi-IN": "shubh"})),
         sarvam_stt_endpoint=str(stt_sec.get("endpoint", "/speech-to-text")),
-        sarvam_stt_model=str(stt_sec.get("model", "saaras:v3")),
+        sarvam_stt_model=_env_str("SARVAM_STT_MODEL", str(stt_sec.get("model", "saaras:v4"))),
         sarvam_stt_cost_per_hour_inr=float(stt_sec.get("cost_per_hour_inr", 30.0)),
+        sarvam_chat_endpoint=str(chat_sec.get("endpoint", "/v1/chat/completions")),
+        sarvam_chat_model=_env_str("SARVAM_CHAT_MODEL", str(chat_sec.get("model", "sarvam-105b-conversations"))),
+        sarvam_chat_cost_credits=_env_float("SARVAM_CHAT_COST_CREDITS", float(chat_sec.get("cost_per_call_credits", 0.15))),
         sarvam_translate_endpoint=str(tr_sec.get("endpoint", "/translate")),
         sarvam_translate_cost_per_10k_inr=float(tr_sec.get("cost_per_10k_chars_inr", 20.0)),
         sarvam_tts_cap_pct=float(cap_sec.get("tts_max_share_pct", 15.0)),
         sarvam_stt_cap_pct=float(cap_sec.get("stt_max_share_pct", 15.0)),
         sarvam_total_cap_pct=float(cap_sec.get("total_max_share_pct", 30.0)),
+        sarvam_initial_balance=_env_float(
+            "SARVAM_INITIAL_BALANCE", float(cap_sec.get("default_initial_balance", 500.0))
+        ),
+        sarvam_max_calls=_env_int("SARVAM_MAX_CALLS", int(cap_sec.get("max_calls_global", 60))),
+        sarvam_session_max_calls=_env_int(
+            "SARVAM_SESSION_MAX_CALLS", int(cap_sec.get("max_calls_per_session", 35))
+        ),
+        sarvam_max_recording_seconds=_env_float(
+            "SARVAM_MAX_RECORDING_SECONDS", float(cap_sec.get("max_recording_seconds", 10.0))
+        ),
         sarvam_ledger_path=ledger_path,
         sarvam_cache_dir=cache_dir,
+        provider_cache_db_path=cache_db_path,
+        prewarmed_assets_dir=prewarmed_dir_path,
+        demo_pin=os.environ.get("DEMO_PIN", "").strip(),
+        demo_live_flag=_parse_bool(os.environ.get("DEMO_LIVE_UNLOCKED"), False),
+        rate_limit_per_minute=_env_int("RATE_LIMIT_PER_MINUTE", 30),
         groq_enabled=groq_en_val,
         groq_api_key=groq_key_val,
         groq_base_url=_env_str(
             "GROQ_BASE_URL", str(groq_sec.get("base_url", "https://api.groq.com/openai/v1"))
         ).rstrip("/"),
-        groq_model=_env_str("GROQ_MODEL", str(groq_sec.get("model", "llama-3.1-8b-instant"))),
+        groq_model=_env_str("GROQ_MODEL", str(groq_sec.get("model", "openai/gpt-oss-20b"))),
+        groq_stt_model=_env_str("GROQ_STT_MODEL", str(groq_sec.get("stt_model", "whisper-large-v3-turbo"))),
+        groq_tts_model=_env_str("GROQ_TTS_MODEL", str(groq_sec.get("tts_model", "canopylabs/orpheus-v1-english"))),
+        groq_tts_voice=_env_str("GROQ_TTS_VOICE", str(groq_sec.get("tts_voice", "troy"))),
         groq_timeout_seconds=_env_float("GROQ_TIMEOUT_SECONDS", float(groq_sec.get("timeout_seconds", 6.0))),
         groq_max_calls_per_session=_env_int(
             "GROQ_MAX_CALLS_PER_SESSION", int(groq_sec.get("max_calls_per_session", 20))

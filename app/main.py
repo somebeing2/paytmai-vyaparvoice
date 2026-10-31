@@ -15,6 +15,7 @@ from .database import DB_PATH, get_conn, init_and_seed_db, use_db_path
 from .engine import (
     answer_merchant_question,
     approve_campaign,
+    detect_delayed_regulars_from_ledger,
     evaluate_guardrail_attack,
     evaluate_what_if,
     execute_ops_action,
@@ -22,6 +23,7 @@ from .engine import (
     get_dashboard_overview,
     get_voice_briefing,
     handle_voice_command,
+    prewarm_fixed_phrases,
     resolve_pending_cap_change,
     set_campaign_stop_loss,
     simulate_campaign_48h,
@@ -30,8 +32,17 @@ from .engine import (
     update_campaign_cap,
 )
 from .providers.groq_qa import get_groq_qa
+from .providers.router import ProviderRouter
 from .providers.sarvam import SarvamProvider
-from .security import verify_admin_token
+from .security import (
+    enforce_ip_rate_limit,
+    extract_client_ip,
+    get_current_request_session,
+    is_session_demo_unlocked,
+    lock_session_demo_mode,
+    unlock_session_with_demo_pin,
+    verify_admin_token,
+)
 from .sessions import SessionIsolationMiddleware, active_session_summary
 from .stats import (
     compute_breakeven_lift,
@@ -51,6 +62,11 @@ def _warm_baseline_db_async() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Seed persistent provider cache from committed assets/prewarmed/ (zero API calls; safe no-op if empty)
+    try:
+        ProviderRouter().persistent_cache.seed_from_prewarmed_dir()
+    except Exception:
+        pass
     # Defer SQLite seed onto a daemon thread so Uvicorn binds 0.0.0.0:$PORT immediately on 0.1-CPU Render Free tier.
     threading.Thread(target=_warm_baseline_db_async, daemon=True).start()
     yield
@@ -58,7 +74,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="PaytmAI VyaparVoice - Merchant Growth Autopilot",
-    version="1.4.0",
+    version="1.5.0",
     lifespan=lifespan,
 )
 
@@ -110,6 +126,12 @@ class STTRequestPayload(BaseModel):
     audio_base64: Optional[str] = None
     fallback_utterance: str = ""
     lang: str = "en"
+    duration_seconds: float = 5.0
+    mime_type: str = "audio/wav"
+
+
+class DemoPinPayload(BaseModel):
+    pin: str
 
 
 class StepLivePayload(BaseModel):
@@ -153,25 +175,34 @@ class TTSRequestPayload(BaseModel):
 
 @app.api_route("/", methods=["GET", "HEAD"])
 def serve_index():
-    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+    return FileResponse(
+        os.path.join(STATIC_DIR, "index.html"),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
 
 
 @app.api_route("/replay", methods=["GET", "HEAD"])
 def serve_offline_replay():
-    return FileResponse(os.path.join(STATIC_DIR, "demo_replay.html"))
+    return FileResponse(
+        os.path.join(STATIC_DIR, "demo_replay.html"),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
 
 
 @app.api_route("/health", methods=["GET", "HEAD"])
 @app.api_route("/api/health", methods=["GET", "HEAD"])
 def health(request: Request):
     settings = get_settings()
+    sid = getattr(request.state, "demo_session_id", None) or get_current_request_session()
+    unlocked = is_session_demo_unlocked(sid)
     return {
         "status": "ok",
         "service": settings.app_name,
         "version": settings.app_version,
         "public_deploy": settings.public_deploy,
-        "paid_calls_blocked": settings.public_deploy or not settings.sarvam_live_allowed,
-        "groq_live_blocked": settings.public_deploy or not settings.groq_live_allowed,
+        "demo_unlocked": unlocked,
+        "paid_calls_blocked": not settings.is_sarvam_live_allowed(demo_unlocked=unlocked),
+        "groq_live_blocked": not settings.is_groq_live_allowed(demo_unlocked=unlocked),
         "session_id": getattr(request.state, "demo_session_id", None),
         "sessions": active_session_summary(),
     }
@@ -188,14 +219,15 @@ def api_briefing(lang: str = "en", detail: bool = False):
 
 
 @app.post("/api/tts")
-def api_tts(payload: TTSRequestPayload):
+def api_tts(payload: TTSRequestPayload, request: Request):
+    enforce_ip_rate_limit(request, bucket="tts")
     txt = (payload.text or "").strip()
     if not txt:
         raise HTTPException(status_code=400, detail="Text is required for TTS.")
     lang_norm = (payload.lang or "en").strip().lower()
     lang_code = "hi-IN" if lang_norm.startswith("hi") else ("kn-IN" if lang_norm.startswith("kn") else "en-IN")
-    provider = SarvamProvider()
-    res = provider.synthesize(txt[:1200], lang_code=lang_code, strict=False)
+    router = ProviderRouter()
+    res = router.synthesize_tts(txt[:1200], lang_code=lang_code, strict=False)
     return {
         "ok": True,
         "lang_code": res.lang_code,
@@ -294,20 +326,22 @@ def api_why(item_id: str):
         post = k["estimated_net_profit_post_fee_inr"]
         if state == "NO_OFFER_RUN_YET":
             plain = assert_valid_merchant_copy(
-                "No offer has run yet, so cashback spent is Rs 0 and estimated profit after offer is Rs 0. "
-                "Once customers visit, we multiply extra sales by your 30 percent assumed shop margin and subtract cashback spent. "
-                "Marked Estimate (Grade C) because UPI bills show payment totals, while shop margin is an assumption."
+                "No offer has run yet, so cashback spent is Rs 0 and estimated profit is +Rs 0 both before and after the 5 percent Paytm promo fee. "
+                "Formula: extra sales above the non-offer group multiplied by 30 percent assumed shop margin minus cashback spent (and minus 5 percent promo fee on redeemed bills for post-fee profit). "
+                "Marked Grade C because QR receipts record bill amounts (Grade A), whereas the 30 percent margin and 5 percent fee are explicit assumptions."
             )
         elif state == "BREAK_EVEN":
             plain = assert_valid_merchant_copy(
-                "Your offer is right at zero net gain before fee: extra shop margin exactly matches cashback spent. "
-                "Marked Estimate (Grade C) because your 30 percent shop margin is an assumed percentage."
+                f"Your offer is at zero net gain before the 5 percent Paytm promo fee (+Rs 0 before fee, Rs {post:.2f} after fee). "
+                "Marked Grade C because the 30 percent shop margin and 5 percent promo fee are explicit assumptions."
             )
         else:
+            pre_disp = f"{int(round(pre))}" if abs(pre - round(pre)) < 0.05 else f"{pre:.2f}"
+            post_disp = f"{int(round(post))}" if abs(post - round(post)) < 0.05 else f"{post:.2f}"
             plain = assert_valid_merchant_copy(
-                f"Estimated profit after offer is Rs {pre:.0f} before fee (Rs {post:.2f} after 5 percent Paytm fee). "
-                "Formula: extra sales multiplied by 30 percent assumed shop margin minus cashback spent. "
-                "Marked Estimate (Grade C) because shop margin and fee are explicit assumptions, not observed on QR receipts."
+                f"Estimated profit after offer is +Rs {pre_disp} before the 5 percent Paytm promo fee and +Rs {post_disp} after the 5 percent Paytm promo fee. "
+                "Formula: extra sales multiplied by 30 percent assumed shop margin minus cashback spent, then minus 5 percent promo fee on redeemed bills. "
+                "Marked Grade C because shop margin and promo fee are explicit assumptions, not observed on QR receipts."
             )
         return {
             "item_id": "KPI-PROFIT",
@@ -323,9 +357,13 @@ def api_why(item_id: str):
         conn.close()
         return render_why_explanation(item_id, dict(row))
     op_row = cur.execute("SELECT * FROM ops_actions WHERE action_id = ?", (item_id,)).fetchone()
-    conn.close()
     if op_row:
-        return render_why_explanation(item_id, dict(op_row))
+        op_dict = dict(op_row)
+        if item_id == "OPS-CARE-02":
+            op_dict["delayed_regulars"] = detect_delayed_regulars_from_ledger(cur)
+        conn.close()
+        return render_why_explanation(item_id, op_dict)
+    conn.close()
     raise HTTPException(status_code=404, detail=f"Unknown recommendation id: {item_id}")
 
 
@@ -434,7 +472,8 @@ def api_simulate_campaign(campaign_id: str, payload: Optional[SimulatePayload] =
 
 
 @app.get("/api/campaigns/{campaign_id}/explain-simply")
-def api_get_explain_simply(campaign_id: str, lang: str = "en"):
+def api_get_explain_simply(campaign_id: str, request: Request, lang: str = "en"):
+    enforce_ip_rate_limit(request, bucket="explain_simply")
     try:
         return explain_campaign_simply(campaign_id, lang=lang)
     except ValueError as exc:
@@ -451,13 +490,16 @@ def api_execute_ops(action_id: str):
 
 
 @app.post("/api/stt")
-def api_stt(payload: STTRequestPayload):
+def api_stt(payload: STTRequestPayload, request: Request):
+    enforce_ip_rate_limit(request, bucket="stt")
     lang_norm = (payload.lang or "en").strip().lower()
     lang_code = "hi-IN" if lang_norm.startswith("hi") else ("kn-IN" if lang_norm.startswith("kn") else "en-IN")
-    provider = SarvamProvider()
-    res = provider.transcribe(
+    router = ProviderRouter()
+    res = router.transcribe_stt(
         audio_base64=payload.audio_base64 or "",
         lang_code=lang_code,
+        duration_seconds=payload.duration_seconds,
+        mime_type=payload.mime_type,
         strict=False,
     )
     return {
@@ -468,17 +510,57 @@ def api_stt(payload: STTRequestPayload):
         "mode": res.mode,
         "fallback_reason": res.fallback_reason,
     }
+
+
 @app.post("/api/voice-command")
-def api_voice_command(payload: VoicePayload):
+def api_voice_command(payload: VoicePayload, request: Request):
+    enforce_ip_rate_limit(request, bucket="voice_cmd")
     return handle_voice_command(payload.utterance, payload.lang)
 
 
 @app.post("/api/merchant-qa")
-def api_merchant_qa(payload: MerchantQAPayload):
+def api_merchant_qa(payload: MerchantQAPayload, request: Request):
+    enforce_ip_rate_limit(request, bucket="merchant_qa")
     try:
         return answer_merchant_question(payload.question, payload.lang)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/providers/status")
+def api_providers_status(request: Request):
+    sid = getattr(request.state, "demo_session_id", None) or get_current_request_session()
+    return ProviderRouter().active_provider_badge(session_id=sid)
+
+
+@app.post("/api/providers/prewarm")
+def api_providers_prewarm(request: Request):
+    enforce_ip_rate_limit(request, bucket="prewarm")
+    sid = getattr(request.state, "demo_session_id", None) or get_current_request_session()
+    return prewarm_fixed_phrases(session_id=sid)
+
+
+@app.post("/api/demo/unlock")
+def api_demo_unlock(payload: DemoPinPayload, request: Request):
+    sid = getattr(request.state, "demo_session_id", None) or get_current_request_session() or "default-session"
+    ip = extract_client_ip(request)
+    unlock_session_with_demo_pin(session_id=sid, provided_pin=payload.pin, client_ip=ip)
+    return {
+        "ok": True,
+        "demo_unlocked": True,
+        "provider_status": ProviderRouter().active_provider_badge(session_id=sid),
+    }
+
+
+@app.post("/api/demo/lock")
+def api_demo_lock(request: Request):
+    sid = getattr(request.state, "demo_session_id", None) or get_current_request_session() or "default-session"
+    lock_session_demo_mode(sid)
+    return {
+        "ok": True,
+        "demo_unlocked": False,
+        "provider_status": ProviderRouter().active_provider_badge(session_id=sid),
+    }
 
 
 @app.get("/api/providers/groq-status")

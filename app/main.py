@@ -128,6 +128,11 @@ class MerchantQAPayload(BaseModel):
     lang: str = "en"
 
 
+class TTSRequestPayload(BaseModel):
+    text: str
+    lang: str = "en"
+
+
 @app.api_route("/", methods=["GET", "HEAD"])
 def serve_index():
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))
@@ -159,8 +164,29 @@ def api_overview():
 
 
 @app.get("/api/briefing")
-def api_briefing(lang: str = "en"):
-    return get_voice_briefing(lang)
+def api_briefing(lang: str = "en", detail: bool = False):
+    return get_voice_briefing(lang, detail=detail)
+
+
+@app.post("/api/tts")
+def api_tts(payload: TTSRequestPayload):
+    txt = (payload.text or "").strip()
+    if not txt:
+        raise HTTPException(status_code=400, detail="Text is required for TTS.")
+    lang_norm = (payload.lang or "en").strip().lower()
+    lang_code = "hi-IN" if lang_norm.startswith("hi") else ("kn-IN" if lang_norm.startswith("kn") else "en-IN")
+    provider = SarvamProvider()
+    res = provider.synthesize(txt[:1200], lang_code=lang_code, strict=False)
+    return {
+        "ok": True,
+        "lang_code": res.lang_code,
+        "provider": res.provider,
+        "mode": res.mode,
+        "cached": res.cached,
+        "audio_base64": res.audio_base64,
+        "mime_type": res.mime_type,
+        "fallback_reason": res.fallback_reason,
+    }
 
 
 @app.get("/api/power")

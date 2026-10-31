@@ -152,14 +152,16 @@ def cmd_activate() -> int:
     results = []
     for lang in ("en", "kn", "hi"):
         br = get_voice_briefing(lang)
+        short_res = provider.synthesize(br["short_script"], lang_code=br["lang_code"], strict=True)
         tts_res = provider.synthesize(br["script"], lang_code=br["lang_code"], strict=True)
         results.append(
             {
                 "lang": lang,
                 "lang_code": br["lang_code"],
                 "provider": tts_res.provider,
-                "cached": tts_res.cached,
-                "credits_used": tts_res.credits_used,
+                "cached_short": short_res.cached,
+                "cached_detail": tts_res.cached,
+                "credits_used": round(short_res.credits_used + tts_res.credits_used, 4),
             }
         )
     print(json.dumps({"ok": True, "activated_briefings": results, "ledger": provider.ledger.summary()}, indent=2))

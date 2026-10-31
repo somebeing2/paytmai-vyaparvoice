@@ -927,7 +927,7 @@ def set_campaign_stop_loss(
         return enriched
 
 
-def get_voice_briefing(lang: str = "en") -> Dict[str, Any]:
+def get_voice_briefing(lang: str = "en", detail: bool = False) -> Dict[str, Any]:
     settings = get_settings()
     conn = get_conn()
     cur = conn.cursor()
@@ -967,15 +967,22 @@ def get_voice_briefing(lang: str = "en") -> Dict[str, Any]:
         min_bill_rupees=int(cmp_row["min_bill"]),
         max_cap_rupees=int(cmp_row["max_budget"]),
         extra_milk_liters=18,
+        cmp_status=str(cmp_row["status"]),
+        budget_spent=int(cmp_row["budget_spent"]),
     )
 
     provider = SarvamProvider(settings=settings)
-    tts_res = provider.synthesize(brief["script"], lang_code=brief["lang_code"], strict=False)
-    brief["tts_provider"] = tts_res.provider
-    brief["tts_mode"] = tts_res.mode
-    brief["audio_base64"] = tts_res.audio_base64
-    brief["audio_mime_type"] = tts_res.mime_type
-    brief["audio_cached"] = tts_res.cached
+    short_tts = provider.synthesize(brief["short_script"], lang_code=brief["lang_code"], strict=False)
+    detail_tts = provider.synthesize(brief["script"], lang_code=brief["lang_code"], strict=False)
+    active_tts = detail_tts if detail else short_tts
+
+    brief["tts_provider"] = active_tts.provider
+    brief["tts_mode"] = active_tts.mode
+    brief["short_audio_base64"] = short_tts.audio_base64
+    brief["detail_audio_base64"] = detail_tts.audio_base64
+    brief["audio_base64"] = active_tts.audio_base64
+    brief["audio_mime_type"] = active_tts.mime_type
+    brief["audio_cached"] = active_tts.cached
     return brief
 
 

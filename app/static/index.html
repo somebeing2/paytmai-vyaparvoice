@@ -750,7 +750,10 @@
       <div id="missingVoiceNotice" class="voice-notice-box"></div>
 
       <div class="script-box">
-        <div class="script-headline" id="briefHeadline">8:30 PM Closing Voice Briefing</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:5px;">
+          <div class="script-headline" id="briefHeadline" style="margin-bottom:0;">8:30 PM Closing Voice Briefing</div>
+          <button class="v-chip" id="btnBriefDetailToggle" style="font-size:10.5px;padding:3px 8px;font-weight:800;border-color:#38bdf8;color:#7dd3fc;" onclick="toggleBriefingDetail()">Hear details</button>
+        </div>
         <div class="script-text" id="briefScript">...</div>
         <div class="script-roman" id="briefRoman"></div>
       </div>
@@ -1001,6 +1004,7 @@
     let currentLang = 'kn';
     let viewMode = 'merchant';
     let currentBriefing = null;
+    let briefingDetailExpanded = false;
     let overviewData = null;
     let slowerSpeech = false;
     let lastSpokenText = '';
@@ -1060,6 +1064,8 @@
       document.getElementById('sbBadge').textContent = tMerchant('sb_badge');
       document.getElementById('ledText').textContent = tMerchant('led_ready');
       document.getElementById('btnSpeakBriefing').textContent = tMerchant('btn_speak');
+      const detBtn = document.getElementById('btnBriefDetailToggle');
+      if (detBtn) detBtn.textContent = briefingDetailExpanded ? tMerchant('btn_say_less') : tMerchant('btn_say_more');
       document.getElementById('btnMicCmd').textContent = tMerchant('btn_mic');
       document.getElementById('btnRepeatLast').textContent = tMerchant('btn_repeat');
       document.getElementById('btnSlower').textContent = slowerSpeech ? tMerchant('btn_slower_on') : tMerchant('btn_slower_off');
@@ -1214,12 +1220,21 @@
       }
     }
 
-    async function loadBriefing(lang) {
-      const res = await fetch(`/api/briefing?lang=${encodeURIComponent(lang)}`);
-      currentBriefing = await res.json();
+    function renderBriefingBox() {
+      if (!currentBriefing) return;
+      const activeScript = briefingDetailExpanded
+        ? (currentBriefing.detail_script || currentBriefing.script)
+        : (currentBriefing.short_script || currentBriefing.script);
+      const activeRoman = briefingDetailExpanded
+        ? (currentBriefing.detail_romanized || currentBriefing.romanized)
+        : (currentBriefing.short_romanized || currentBriefing.romanized);
+
       document.getElementById('briefHeadline').textContent = currentBriefing.headline;
-      document.getElementById('briefScript').textContent = currentBriefing.script;
-      document.getElementById('briefRoman').textContent = currentBriefing.romanized;
+      document.getElementById('briefScript').textContent = activeScript;
+      document.getElementById('briefRoman').textContent = activeRoman;
+
+      const detBtn = document.getElementById('btnBriefDetailToggle');
+      if (detBtn) detBtn.textContent = briefingDetailExpanded ? tMerchant('btn_say_less') : tMerchant('btn_say_more');
 
       const revBadge = document.getElementById('reviewBadge');
       revBadge.textContent = currentBriefing.is_draft_translation
@@ -1236,6 +1251,18 @@
         provBadge.textContent = tMerchant('provider_webspeech');
       }
       updateMissingVoiceNotice();
+    }
+
+    async function loadBriefing(lang) {
+      const res = await fetch(`/api/briefing?lang=${encodeURIComponent(lang)}&detail=${briefingDetailExpanded ? 'true' : 'false'}`);
+      currentBriefing = await res.json();
+      renderBriefingBox();
+    }
+
+    function toggleBriefingDetail() {
+      briefingDetailExpanded = !briefingDetailExpanded;
+      renderBriefingBox();
+      speakBriefing();
     }
 
     function updateMissingVoiceNotice() {
@@ -1299,13 +1326,62 @@
       window.speechSynthesis.speak(utter);
     }
 
+    async function speakViaActiveProvider(text, langShort, romanFallback) {
+      lastSpokenText = text;
+      const langCode = langShort === 'hi' ? 'hi-IN' : (langShort === 'kn' ? 'kn-IN' : 'en-IN');
+      lastSpokenLang = langCode;
+      try {
+        const res = await fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, lang: langShort })
+        });
+        if (res.ok) {
+          const d = await res.json();
+          if (d.audio_base64) {
+            const player = document.getElementById('cachedAudioPlayer');
+            player.src = `data:${d.mime_type || 'audio/wav'};base64,${d.audio_base64}`;
+            player.playbackRate = slowerSpeech ? 0.78 : 1.0;
+            const dot = document.getElementById('ledDot');
+            const ledTxt = document.getElementById('ledText');
+            dot.classList.add('speaking');
+            ledTxt.textContent = tMerchant('led_playing_cached');
+            player.onended = () => {
+              dot.classList.remove('speaking');
+              ledTxt.textContent = tMerchant('led_ready');
+            };
+            player.play().catch(() => {});
+            return;
+          }
+        }
+      } catch (e) {}
+
+      const voices = ('speechSynthesis' in window) ? window.speechSynthesis.getVoices() : [];
+      const hasLangVoice = voices.some(v => v.lang && v.lang.toLowerCase().startsWith(langShort));
+      updateMissingVoiceNotice();
+      const textToRead = ((langShort === 'kn' || langShort === 'hi') && !hasLangVoice && romanFallback)
+        ? romanFallback
+        : text;
+      speakText(textToRead, hasLangVoice ? langCode : 'en-IN');
+    }
+
     function speakBriefing() {
       if (!currentBriefing) return;
-      if (currentBriefing.audio_base64) {
-        lastSpokenText = currentBriefing.script;
+      const chosenAudioB64 = briefingDetailExpanded
+        ? (currentBriefing.detail_audio_base64 || currentBriefing.audio_base64)
+        : (currentBriefing.short_audio_base64 || currentBriefing.audio_base64);
+      const chosenScript = briefingDetailExpanded
+        ? (currentBriefing.detail_script || currentBriefing.script)
+        : (currentBriefing.short_script || currentBriefing.script);
+      const chosenRoman = briefingDetailExpanded
+        ? (currentBriefing.detail_romanized || currentBriefing.romanized)
+        : (currentBriefing.short_romanized || currentBriefing.romanized);
+
+      if (chosenAudioB64) {
+        lastSpokenText = chosenScript;
         lastSpokenLang = currentBriefing.lang_code;
         const player = document.getElementById('cachedAudioPlayer');
-        player.src = `data:${currentBriefing.audio_mime_type || 'audio/wav'};base64,${currentBriefing.audio_base64}`;
+        player.src = `data:${currentBriefing.audio_mime_type || 'audio/wav'};base64,${chosenAudioB64}`;
         player.playbackRate = slowerSpeech ? 0.78 : 1.0;
         const dot = document.getElementById('ledDot');
         const ledTxt = document.getElementById('ledText');
@@ -1322,8 +1398,8 @@
       const hasLangVoice = voices.some(v => v.lang && v.lang.toLowerCase().startsWith(currentLang));
       updateMissingVoiceNotice();
       const textToRead = ((currentLang === 'kn' || currentLang === 'hi') && !hasLangVoice)
-        ? currentBriefing.romanized
-        : currentBriefing.script;
+        ? chosenRoman
+        : chosenScript;
       speakText(textToRead, hasLangVoice ? currentBriefing.lang_code : 'en-IN');
     }
 

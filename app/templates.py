@@ -35,13 +35,35 @@ def render_closing_briefing(
     min_bill_rupees: int,
     max_cap_rupees: int,
     extra_milk_liters: int = 18,
+    cmp_status: str = "PENDING_APPROVAL",
+    budget_spent: int = 0,
 ) -> Dict[str, Any]:
     """
     Deterministic template renderer for 8:30 PM closing voice briefing.
+    Default short_script is strictly 3 sentences: today's headline, offer status, and one suggested action.
     All numeric fields come strictly from SQLite queries; zero LLM text generation.
-    Kannada and Hindi are explicitly tagged DRAFT - UNREVIEWED BY NATIVE SPEAKER.
+    Kannada and Hindi are explicitly tagged Draft - unreviewed by native speaker.
     """
     if lang == "kn":
+        status_kn = (
+            f"{treatment_count} ಖಾಯಂ ಗ್ರಾಹಕರಿಗೆ {offer_rupees} ರೂಪಾಯಿ ಕ್ಯಾಶ್‌ಬ್ಯಾಕ್ ಆಫರ್ ಸಿದ್ಧವಿದೆ (ಗರಿಷ್ಠ ಮಿತಿ {max_cap_rupees} ರೂಪಾಯಿ)."
+            if cmp_status == "PENDING_APPROVAL"
+            else f"ನಿಮ್ಮ {offer_rupees} ರೂಪಾಯಿ ಆಫರ್ ಚಾಲನೆಯಲ್ಲಿದ್ದು {max_cap_rupees} ರೂಪಾಯಿ ಮಿತಿಯಲ್ಲಿ {budget_spent} ರೂಪಾಯಿ ಬಳಕೆಯಾಗಿದೆ."
+        )
+        action_kn = (
+            "ಆಫರ್ ಕಳುಹಿಸಲು ಹೌದು ಎಂದು ಹೇಳಿ."
+            if cmp_status == "PENDING_APPROVAL"
+            else f"ನಾಳೆ ಬೆಳಿಗ್ಗೆಗಾಗಿ {extra_milk_liters} ಲೀಟರ್ ಹೆಚ್ಚುವರಿ ಹಾಲು ಆರ್ಡರ್ ಮಾಡಲು ಹಾಲು ಆರ್ಡರ್ ಎಂದು ಹೇಳಿ."
+        )
+        short_script = (
+            f"ನಮಸ್ಕಾರ {owner_first_name} ಅವರೇ, ಇಂದು {store_short_name} ನಲ್ಲಿ {recent_day_txns} ಯುಪಿಐ ಪೇಮೆಂಟ್ ಆಗಿದೆ. "
+            f"{status_kn} {action_kn}"
+        )
+        short_romanized = (
+            f"Namaskara {owner_first_name} avare, indu {recent_day_txns} UPI payment agide. "
+            f"{treatment_count} grahakarige Rs {offer_rupees} offer siddhavide (miti Rs {max_cap_rupees}). "
+            f"Oppige needalu 'Haudu' endu heli."
+        )
         script = (
             f"ನಮಸ್ಕಾರ {owner_first_name} ಅವರೇ! ಇಂದು {store_short_name} ನಲ್ಲಿ {recent_day_txns} ಯುಪಿಐ ಪೇಮೆಂಟ್ ಆಗಿದೆ. "
             f"ಆಫರ್ ಪಡೆಯಲು ಒಪ್ಪಿದ {eligible_lapsed} ಖಾಯಂ ಗ್ರಾಹಕರು ಕಳೆದ {min_silent_days} ರಿಂದ {max_silent_days} ದಿನಗಳಿಂದ ಬಂದಿಲ್ಲ. "
@@ -55,20 +77,44 @@ def render_closing_briefing(
             f"{treatment_count} grahakarige Rs {offer_rupees} cashback (Rs {min_bill_rupees}+ bill) kaluhisabahudu; "
             f"ottu kharchu Rs {max_cap_rupees} mitiyalli nilluttade. Oppige needalu 'Haudu, kaluhisi' endu heli."
         )
+        assert_valid_merchant_copy(short_script, check_sentence_length=False)
         assert_valid_merchant_copy(script, check_sentence_length=False)
         return {
             "lang_code": "kn-IN",
             "language_name": "ಕನ್ನಡ (Kannada - Bengaluru)",
-            "review_status": "DRAFT - UNREVIEWED BY NATIVE SPEAKER",
+            "review_status": "DRAFT - unreviewed by native speaker",
             "is_draft_translation": True,
             "headline": "ರಾತ್ರಿ 8:30 ಕ್ಲೋಸಿಂಗ್ ಬ್ರೀಫಿಂಗ್ - Paytm AI Soundbox",
+            "short_script": short_script,
+            "short_romanized": short_romanized,
             "script": script,
+            "detail_script": script,
             "romanized": romanized,
+            "detail_romanized": romanized,
             "cta_hint": "Say: 'Haudu kaluhisi' or click 1-Tap Approve",
             "evidence_grade": "A",
         }
 
     if lang == "hi":
+        status_hi = (
+            f"{treatment_count} नियमित ग्राहकों के लिए {offer_rupees} रुपये का कैशबैक ऑफर तैयार है (अधिकतम बजट {max_cap_rupees} रुपये)।"
+            if cmp_status == "PENDING_APPROVAL"
+            else f"आपका {offer_rupees} रुपये का ऑफर चालू है और {max_cap_rupees} रुपये बजट में से {budget_spent} रुपये उपयोग हुए हैं।"
+        )
+        action_hi = (
+            "ऑफर शुरू करने के लिए हां भेज दो बोलें।"
+            if cmp_status == "PENDING_APPROVAL"
+            else f"कल सुबह की भीड़ के लिए {extra_milk_liters} लीटर अतिरिक्त दूध मंगवाने हेतु दूध ऑर्डर बोलें।"
+        )
+        short_script = (
+            f"नमस्ते {owner_first_name} जी, आज {store_short_name} पर {recent_day_txns} यूपीआई पेमेंट हुए। "
+            f"{status_hi} {action_hi}"
+        )
+        short_romanized = (
+            f"Namaste {owner_first_name} ji, aaj {recent_day_txns} UPI payment hue. "
+            f"{treatment_count} grahakon ke liye Rs {offer_rupees} cashback taiyar hai (budget Rs {max_cap_rupees}). "
+            f"Shuru karne ke liye 'Haan bhej do' bolein."
+        )
         script = (
             f"नमस्ते {owner_first_name} जी! आज {store_short_name} पर {recent_day_txns} यूपीआई पेमेंट हुए। "
             f"ऑफर की सहमति देने वाले आपके {eligible_lapsed} पुराने ग्राहक पिछले {min_silent_days} से {max_silent_days} दिनों से नहीं आए हैं। "
@@ -82,19 +128,38 @@ def render_closing_briefing(
             f"{treatment_count} grahakon ko Rs {offer_rupees} cashback (Rs {min_bill_rupees}+ bill) bhej sakte hain; "
             f"adhiktam kharch Rs {max_cap_rupees} par ruk jayega. Shuru karne ke liye 'Haan, bhej do' bolein."
         )
+        assert_valid_merchant_copy(short_script, check_sentence_length=False)
         assert_valid_merchant_copy(script, check_sentence_length=False)
         return {
             "lang_code": "hi-IN",
             "language_name": "हिंदी (Hindi)",
-            "review_status": "DRAFT - UNREVIEWED BY NATIVE SPEAKER",
+            "review_status": "DRAFT - unreviewed by native speaker",
             "is_draft_translation": True,
             "headline": "रात 8:30 क्लोजिंग वॉइस ब्रीफिंग - Paytm AI Soundbox",
+            "short_script": short_script,
+            "short_romanized": short_romanized,
             "script": script,
+            "detail_script": script,
             "romanized": romanized,
+            "detail_romanized": romanized,
             "cta_hint": "Say: 'Haan bhej do' or click 1-Tap Approve",
             "evidence_grade": "A",
         }
 
+    status_en = (
+        f"Your {offer_rupees} rupee offer for {treatment_count} silent regulars is ready with a {max_cap_rupees} rupee budget cap."
+        if cmp_status == "PENDING_APPROVAL"
+        else f"Your {offer_rupees} rupee offer is active with {budget_spent} rupees spent out of your {max_cap_rupees} rupee cap."
+    )
+    action_en = (
+        "Say Approve to send the offer tonight."
+        if cmp_status == "PENDING_APPROVAL"
+        else f"Say Reorder milk to order {extra_milk_liters} liters extra milk for tomorrow morning."
+    )
+    short_en = (
+        f"Good evening {owner_first_name}, today {store_short_name} recorded {recent_day_txns} Paytm QR payments. "
+        f"{status_en} {action_en}"
+    )
     script_en = (
         f"Good evening {owner_first_name} avare! Today {store_short_name} recorded {recent_day_txns} Paytm QR payments. "
         f"{eligible_lapsed} regular evening customers who agreed to shop offers have not visited for {min_silent_days} to {max_silent_days} days. "
@@ -103,6 +168,7 @@ def render_closing_briefing(
         f"Your actual cashback spend stops strictly at {max_cap_rupees} rupees. "
         f"Tomorrow's weekend rush also needs {extra_milk_liters} liters extra milk. Say Approve or tap once on Soundbox!"
     )
+    assert_valid_merchant_copy(short_en, check_sentence_length=True)
     assert_valid_merchant_copy(script_en, check_sentence_length=True)
     return {
         "lang_code": "en-IN",
@@ -110,8 +176,12 @@ def render_closing_briefing(
         "review_status": "EN author-checked, native review pending",
         "is_draft_translation": False,
         "headline": "8:30 PM Closing Voice Briefing - Paytm AI Soundbox",
+        "short_script": short_en,
+        "short_romanized": short_en,
         "script": script_en,
+        "detail_script": script_en,
         "romanized": "Plain Indian English - Deterministic Template (EN author-checked, native review pending)",
+        "detail_romanized": "Plain Indian English - Deterministic Template (EN author-checked, native review pending)",
         "cta_hint": "Say: 'Yes, approve win-back' or click 1-Tap Approve",
         "evidence_grade": "A",
     }

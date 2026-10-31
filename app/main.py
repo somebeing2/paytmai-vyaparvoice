@@ -91,13 +91,23 @@ class VoicePayload(BaseModel):
 
 class CapUpdatePayload(BaseModel):
     new_cap_inr: int
-    actor: str = "Merchant Cap Editor"
+    actor: str = "dashboard"
     confirmed: bool = True
+    period_key: str = "48_hours"
+    lang: str = "en"
+    source: Optional[str] = None
 
 
 class CapConfirmPayload(BaseModel):
     confirm: bool = True
-    actor: str = "Merchant Confirmed"
+    actor: str = "voice"
+    source: Optional[str] = None
+
+
+class STTRequestPayload(BaseModel):
+    audio_base64: Optional[str] = None
+    fallback_utterance: str = ""
+    lang: str = "en"
 
 
 class StepLivePayload(BaseModel):
@@ -302,6 +312,9 @@ def api_update_campaign_cap(campaign_id: str, payload: CapUpdatePayload):
             new_cap_inr=payload.new_cap_inr,
             actor=payload.actor,
             confirmed=payload.confirmed,
+            period_key=payload.period_key,
+            lang=payload.lang,
+            source=payload.source,
         )
         return {"ok": True, "campaign": cmp_data}
     except ValueError as exc:
@@ -317,6 +330,7 @@ def api_confirm_campaign_cap(campaign_id: str, payload: Optional[CapConfirmPaylo
             campaign_id,
             confirm=body.confirm,
             actor=body.actor,
+            source=body.source,
         )
         return {"ok": True, "campaign": cmp_data}
     except ValueError as exc:
@@ -369,6 +383,25 @@ def api_execute_ops(action_id: str):
         raise HTTPException(status_code=404, detail=str(exc))
 
 
+@app.post("/api/stt")
+def api_stt(payload: STTRequestPayload):
+    lang_norm = (payload.lang or "en").strip().lower()
+    lang_code = "hi-IN" if lang_norm.startswith("hi") else ("kn-IN" if lang_norm.startswith("kn") else "en-IN")
+    provider = SarvamProvider()
+    res = provider.transcribe(
+        audio_base64=payload.audio_base64,
+        lang_code=lang_code,
+        fallback_utterance=payload.fallback_utterance,
+        strict=False,
+    )
+    return {
+        "ok": True,
+        "transcript": res.transcript,
+        "lang_code": res.lang_code,
+        "provider": res.provider,
+        "mode": res.mode,
+        "fallback_reason": res.fallback_reason,
+    }
 @app.post("/api/voice-command")
 def api_voice_command(payload: VoicePayload):
     return handle_voice_command(payload.utterance, payload.lang)

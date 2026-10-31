@@ -4,6 +4,15 @@ import random
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from .budget_parser import (
+    detect_confirmation_intent,
+    format_period_label,
+    parse_verbal_budget_command,
+    render_budget_bounds_rejection,
+    render_budget_cancelled_message,
+    render_budget_confirmed_message,
+    render_budget_readback_prompt,
+)
 from .config import get_settings
 from .copy_lint import assert_valid_merchant_copy
 from .database import get_conn, get_db_lock
@@ -55,10 +64,15 @@ def _ensure_pending_table(cur) -> None:
             requested_cap_inr INTEGER NOT NULL,
             previous_cap_inr INTEGER NOT NULL,
             requested_via TEXT NOT NULL,
+            period_key TEXT DEFAULT '48_hours',
             ts TEXT NOT NULL
         )
         """
     )
+    try:
+        cur.execute("ALTER TABLE pending_confirmations ADD COLUMN period_key TEXT DEFAULT '48_hours'")
+    except Exception:
+        pass
 
 
 def _get_campaign_assumed_rate(campaign_id: str) -> float:
@@ -115,11 +129,17 @@ def _enrich_campaign_dict(cur, cmp_row: Dict[str, Any]) -> Dict[str, Any]:
         "SELECT * FROM pending_confirmations WHERE campaign_id = ?",
         (item["campaign_id"],),
     ).fetchone()
+    pending_dict = None
+    if pending_row:
+        pending_dict = dict(pending_row)
+        pkey = pending_dict.get("period_key") or "48_hours"
+        pending_dict["period_key"] = pkey
+        pending_dict["period_label"] = format_period_label(pkey, "en")
     item["cap_editor"] = {
         "min_cap_inr": settings.min_cap_inr,
         "max_cap_inr": settings.max_cap_inr,
         "presets_inr": list(settings.cap_presets_inr),
-        "pending_confirmation": dict(pending_row) if pending_row else None,
+        "pending_confirmation": pending_dict,
     }
 
     passes_count = cur.execute(
@@ -743,17 +763,29 @@ def evaluate_what_if(
     )
 
 
+def _normalize_cap_source(actor: str, explicit_source: Optional[str] = None) -> str:
+    if explicit_source and explicit_source.strip().lower() in ("voice", "dashboard"):
+        return explicit_source.strip().lower()
+    if "voice" in (actor or "").lower():
+        return "voice"
+    return "dashboard"
+
+
 def update_campaign_cap(
     campaign_id: str,
     new_cap_inr: int,
-    actor: str = "Merchant Cap Editor",
+    actor: str = "dashboard",
     confirmed: bool = True,
+    period_key: str = "48_hours",
+    lang: str = "en",
+    source: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Task 9 Cap Editor with hard bounds check ([min_cap_inr, max_cap_inr]),
-    two-step voice confirmation support, and immutable audit logging.
+    Task 9 & Task 3 Cap Editor with hard bounds check ([min_cap_inr, max_cap_inr]),
+    two-step voice confirmation support, period tracking, and source=('voice'|'dashboard') audit logging.
     """
     settings = get_settings()
+    norm_source = _normalize_cap_source(actor, source)
     lock = get_db_lock()
     with lock:
         conn = get_conn()
@@ -774,9 +806,9 @@ def update_campaign_cap(
                 "INSERT INTO audit_logs (ts, actor, event_type, detail) VALUES (?, ?, ?, ?)",
                 (
                     now_label(),
-                    actor,
+                    norm_source,
                     "CAP_CHANGE_REJECTED",
-                    f"Rejected cap Rs {new_cap_inr} on {campaign_id}; valid bounds are Rs {min_allowed} to Rs {max_allowed}.",
+                    f"source={norm_source} | Rejected cap Rs {new_cap_inr} on {campaign_id}; valid bounds are Rs {min_allowed} to Rs {max_allowed}.",
                 ),
             )
             conn.commit()
@@ -799,28 +831,27 @@ def update_campaign_cap(
             cur.execute(
                 """
                 INSERT OR REPLACE INTO pending_confirmations
-                (campaign_id, requested_cap_inr, previous_cap_inr, requested_via, ts)
-                VALUES (?, ?, ?, ?, ?)
+                (campaign_id, requested_cap_inr, previous_cap_inr, requested_via, period_key, ts)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (campaign_id, int(new_cap_inr), old_cap, actor, ts),
+                (campaign_id, int(new_cap_inr), old_cap, norm_source, period_key, ts),
             )
             cur.execute(
                 "INSERT INTO audit_logs (ts, actor, event_type, detail) VALUES (?, ?, ?, ?)",
                 (
                     ts,
-                    actor,
+                    norm_source,
                     "CAP_CONFIRMATION_REQUESTED",
-                    f"Pending merchant confirmation on {campaign_id}: Rs {old_cap} -> Rs {new_cap_inr} "
+                    f"source={norm_source} | Pending confirmation on {campaign_id}: Rs {old_cap} -> Rs {new_cap_inr} for {period_key} "
                     f"(up to {new_risk['max_funded_redemptions']} paid redemptions; overrun risk {new_risk['prob_exceeds_cap_pct']}%).",
                 ),
             )
             conn.commit()
             enriched = _enrich_campaign_dict(cur, dict(cmp_row))
-            enriched["confirmation_prompt"] = render_voice_cap_confirmation_prompt(
-                old_cap=old_cap,
-                new_cap=int(new_cap_inr),
-                offer_rupees=offer,
-                overrun_prob_pct=new_risk["prob_exceeds_cap_pct"],
+            enriched["confirmation_prompt"] = render_budget_readback_prompt(
+                amount_inr=int(new_cap_inr),
+                period_key=period_key,
+                lang=lang,
             )
             conn.close()
             return enriched
@@ -836,10 +867,10 @@ def update_campaign_cap(
             "INSERT INTO audit_logs (ts, actor, event_type, detail) VALUES (?, ?, ?, ?)",
             (
                 now_label(),
-                actor,
+                norm_source,
                 "CAP_UPDATED",
-                f"Updated {campaign_id} hard spend cap: Rs {old_cap} -> Rs {new_cap_inr} "
-                f"({new_risk['max_funded_redemptions']} max funded redemptions; overrun risk {new_risk['prob_exceeds_cap_pct']}%).",
+                f"source={norm_source} | Updated {campaign_id} hard spend cap: Rs {old_cap} -> Rs {new_cap_inr} ({period_key}; "
+                f"{new_risk['max_funded_redemptions']} max funded redemptions; overrun risk {new_risk['prob_exceeds_cap_pct']}%).",
             ),
         )
         conn.commit()
@@ -852,8 +883,10 @@ def update_campaign_cap(
 def resolve_pending_cap_change(
     campaign_id: str,
     confirm: bool = True,
-    actor: str = "Merchant Voice Confirmation",
+    actor: str = "voice",
+    source: Optional[str] = None,
 ) -> Dict[str, Any]:
+    norm_source = _normalize_cap_source(actor, source)
     lock = get_db_lock()
     with lock:
         conn = get_conn()
@@ -868,15 +901,16 @@ def resolve_pending_cap_change(
 
         req_cap = int(pending["requested_cap_inr"])
         prev_cap = int(pending["previous_cap_inr"])
+        pkey = str(pending["period_key"] if "period_key" in pending.keys() and pending["period_key"] else "48_hours")
         if not confirm:
             cur.execute("DELETE FROM pending_confirmations WHERE campaign_id = ?", (campaign_id,))
             cur.execute(
                 "INSERT INTO audit_logs (ts, actor, event_type, detail) VALUES (?, ?, ?, ?)",
                 (
                     now_label(),
-                    actor,
+                    norm_source,
                     "CAP_CHANGE_CANCELLED",
-                    f"Cancelled pending cap change on {campaign_id} (kept Rs {prev_cap}; discarded Rs {req_cap}).",
+                    f"source={norm_source} | Cancelled pending cap change on {campaign_id} (kept Rs {prev_cap}; discarded Rs {req_cap}).",
                 ),
             )
             conn.commit()
@@ -886,7 +920,7 @@ def resolve_pending_cap_change(
             return enriched
         conn.close()
 
-    return update_campaign_cap(campaign_id, req_cap, actor=actor, confirmed=True)
+    return update_campaign_cap(campaign_id, req_cap, actor=norm_source, confirmed=True, period_key=pkey, source=norm_source)
 
 
 def set_campaign_stop_loss(
@@ -1507,77 +1541,84 @@ def execute_ops_action(action_id: str) -> Dict[str, Any]:
 
 def handle_voice_command(utterance: str, lang: str = "en") -> Dict[str, Any]:
     text = (utterance or "").lower().strip()
+    lg = lang if lang in ("en", "hi", "kn") else "en"
     action_taken = None
 
-    # 1. Check two-step pending cap confirmation / cancellation first
-    if any(p in text for p in ["confirm limit", "confirm cap", "confirm spending", "yes confirm"]):
-        try:
-            conn = get_conn()
-            cur = conn.cursor()
-            _ensure_pending_table(cur)
-            pend = cur.execute(
-                "SELECT * FROM pending_confirmations WHERE campaign_id = 'CMP-WINBACK-01'"
-            ).fetchone()
-            conn.close()
-            old_cap = int(pend["previous_cap_inr"]) if pend else 300
+    # 1. Check active pending budget confirmation first (accepts 'yes'/'no' in en/hi/kn or explicit confirm/cancel)
+    conn_chk = get_conn()
+    cur_chk = conn_chk.cursor()
+    _ensure_pending_table(cur_chk)
+    active_pend = cur_chk.execute(
+        "SELECT * FROM pending_confirmations WHERE campaign_id = 'CMP-WINBACK-01'"
+    ).fetchone()
+    conn_chk.close()
+
+    confirm_intent = detect_confirmation_intent(utterance)
+    if active_pend is not None and confirm_intent is not None:
+        old_cap = int(active_pend["previous_cap_inr"])
+        pkey = str(active_pend["period_key"] if "period_key" in active_pend.keys() and active_pend["period_key"] else "48_hours")
+        if confirm_intent is True:
             updated = resolve_pending_cap_change(
-                "CMP-WINBACK-01", confirm=True, actor=f"Voice Confirmed ({lang.upper()})"
+                "CMP-WINBACK-01", confirm=True, actor="voice", source="voice"
             )
-            action_taken = "CAP_CONFIRMED_CMP_WINBACK_01"
-            reply = render_voice_cap_confirmed_reply(
+            reply = render_budget_confirmed_message(
                 old_cap=old_cap,
                 new_cap=int(updated["max_budget"]),
-                offer_rupees=int(updated["offer_rupees"]),
+                period_key=pkey,
+                lang=lg,
             )
-            return {"utterance": utterance, "reply": reply, "action_taken": action_taken}
-        except ValueError:
-            reply = "There is no pending spending limit change waiting for confirmation right now."
-            return {"utterance": utterance, "reply": assert_valid_merchant_copy(reply), "action_taken": "NO_PENDING_CAP"}
+            return {"utterance": utterance, "reply": reply, "action_taken": "CAP_CONFIRMED_CMP_WINBACK_01"}
+        else:
+            updated = resolve_pending_cap_change(
+                "CMP-WINBACK-01", confirm=False, actor="voice", source="voice"
+            )
+            reply = render_budget_cancelled_message(current_cap=int(updated["max_budget"]), lang=lg)
+            return {"utterance": utterance, "reply": reply, "action_taken": "CAP_CANCELLED_CMP_WINBACK_01"}
+
+    if any(p in text for p in ["confirm limit", "confirm cap", "confirm spending", "yes confirm"]):
+        reply = "There is no pending spending limit change waiting for confirmation right now."
+        return {"utterance": utterance, "reply": assert_valid_merchant_copy(reply), "action_taken": "NO_PENDING_CAP"}
 
     if any(p in text for p in ["cancel limit", "cancel cap", "discard limit"]):
-        try:
-            updated = resolve_pending_cap_change(
-                "CMP-WINBACK-01", confirm=False, actor=f"Voice Cancelled ({lang.upper()})"
-            )
-            reply = f"Cancelled! Your spending limit stays unchanged at {updated['max_budget']} rupees."
+        reply = "No pending spending limit change was active, so your current limit remains unchanged."
+        return {"utterance": utterance, "reply": assert_valid_merchant_copy(reply), "action_taken": "NO_PENDING_CAP"}
+
+    # 2. Verbal budget setting (EN / HI / KN digits + number words + period) -> mandatory readback confirmation
+    parsed_budget = parse_verbal_budget_command(utterance)
+    if parsed_budget["matched"]:
+        req_cap = parsed_budget["amount_inr"]
+        pkey = parsed_budget["period_key"]
+        settings = get_settings()
+        if req_cap is None:
+            msg = render_budget_bounds_rejection(settings.min_cap_inr, settings.max_cap_inr, None, lg)
             return {
                 "utterance": utterance,
-                "reply": assert_valid_merchant_copy(reply),
-                "action_taken": "CAP_CANCELLED_CMP_WINBACK_01",
+                "reply": msg,
+                "action_taken": "CAP_CHANGE_REJECTED",
             }
-        except ValueError:
-            reply = "No pending spending limit change was active, so your current limit remains unchanged."
-            return {"utterance": utterance, "reply": assert_valid_merchant_copy(reply), "action_taken": "NO_PENDING_CAP"}
-
-    # 2. Voice cap change request -> two-step confirmation (never mutates without confirmation)
-    cap_voice_match = re.search(
-        r"(?:set|change|raise|lower|update|make)\s+(?:my\s+)?(?:spending\s+)?(?:limit|cap|budget)\s*(?:to|at)?\s*(?:rs\.?|inr)?\s*(-?\d+)",
-        text,
-    )
-    if cap_voice_match:
-        req_cap = int(cap_voice_match.group(1))
         try:
             res = update_campaign_cap(
                 "CMP-WINBACK-01",
                 new_cap_inr=req_cap,
-                actor=f"Voice Request ({lang.upper()})",
+                actor="voice",
                 confirmed=False,
+                period_key=pkey,
+                lang=lg,
+                source="voice",
             )
             return {
                 "utterance": utterance,
                 "reply": res["confirmation_prompt"],
                 "action_taken": "CAP_CONFIRMATION_PENDING",
                 "requested_cap_inr": req_cap,
+                "period_key": pkey,
+                "parser_mode": parsed_budget["parser_mode"],
             }
         except ValueError as exc:
-            settings = get_settings()
-            msg = (
-                f"Cannot set that limit. Please pick a spending limit between {settings.min_cap_inr} rupees "
-                f"and {settings.max_cap_inr} rupees."
-            )
+            msg = render_budget_bounds_rejection(settings.min_cap_inr, settings.max_cap_inr, req_cap, lg)
             return {
                 "utterance": utterance,
-                "reply": assert_valid_merchant_copy(msg),
+                "reply": msg,
                 "action_taken": "CAP_CHANGE_REJECTED",
                 "error": str(exc),
             }

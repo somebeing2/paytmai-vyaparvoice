@@ -1457,18 +1457,30 @@
       rec.start();
     }
 
+    let voiceBudgetFeedback = {};
+
     async function updateCap(campaignId, newCap, actorLabel) {
+      const src = (actorLabel && actorLabel.toLowerCase().includes('voice')) ? 'voice' : 'dashboard';
       const res = await fetch(`/api/campaigns/${campaignId}/cap`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ new_cap_inr: Number(newCap), actor: actorLabel || 'dashboard', confirmed: true })
+        body: JSON.stringify({
+          new_cap_inr: Number(newCap),
+          actor: src,
+          source: src,
+          lang: currentLang,
+          confirmed: true
+        })
       });
       if (!res.ok) {
         const err = await res.json();
-        alert(err.detail || 'Invalid cap value');
+        const msg = err.detail || 'Invalid cap value';
+        voiceBudgetFeedback[campaignId] = { error: true, text: msg };
+        speakViaActiveProvider(msg, currentLang, msg);
         await loadOverview();
         return;
       }
+      delete voiceBudgetFeedback[campaignId];
       document.getElementById('lcdMain').textContent = tMerchant('lcd_cap_set', { cap: fmtNum(newCap) });
       document.getElementById('lcdSub').textContent = tMerchant('lcd_audit_logged');
       await loadBriefing(currentLang);
@@ -1481,12 +1493,78 @@
       updateCap(campaignId, Number(el.value), 'dashboard');
     }
 
-    async function confirmPendingCap(campaignId, doConfirm) {
-      await fetch(`/api/campaigns/${campaignId}/cap/confirm`, {
+    async function submitVerbalBudget(campaignId) {
+      const inp = document.getElementById('voice-budget-txt-' + campaignId);
+      if (!inp || !inp.value.trim()) return;
+      const utter = inp.value.trim();
+      const res = await fetch('/api/voice-command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirm: Boolean(doConfirm), actor: 'dashboard' })
+        body: JSON.stringify({ utterance: utter, lang: currentLang })
       });
+      const data = await res.json();
+      const isErr = (data.action_taken === 'CAP_CHANGE_REJECTED' || data.action_taken === 'GUARDRAIL_ATTACK_BLOCKED');
+      voiceBudgetFeedback[campaignId] = {
+        error: isErr,
+        text: data.reply,
+        transcript: utter
+      };
+      const vBox = document.getElementById('voiceReplyBox');
+      if (vBox) {
+        vBox.style.display = 'block';
+        vBox.innerHTML = `<strong>${tMerchant('you_said')}</strong> "${utter}"<br/><strong>${tMerchant('sb_reply')}</strong> ${data.reply}`;
+      }
+      speakViaActiveProvider(data.reply, currentLang, data.reply);
+      await loadBriefing(currentLang);
+      await loadOverview();
+    }
+
+    function startVerbalBudgetMic(campaignId, autoSubmitYesNo = false) {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const inp = document.getElementById('voice-budget-txt-' + campaignId);
+      if (!SR) {
+        const msg = tMerchant('mic_fallback_msg');
+        voiceBudgetFeedback[campaignId] = { error: false, text: msg };
+        renderAll();
+        const targetInp = document.getElementById('voice-budget-txt-' + campaignId);
+        if (targetInp) targetInp.focus();
+        return;
+      }
+      const rec = new SR();
+      rec.lang = currentLang === 'kn' ? 'kn-IN' : (currentLang === 'hi' ? 'hi-IN' : 'en-IN');
+      rec.interimResults = false;
+      rec.maxAlternatives = 1;
+      document.getElementById('ledDot').classList.add('speaking');
+      document.getElementById('ledText').textContent = tMerchant('led_listening');
+      rec.onresult = (ev) => {
+        document.getElementById('ledDot').classList.remove('speaking');
+        document.getElementById('ledText').textContent = tMerchant('led_ready');
+        const heard = ev.results[0][0].transcript;
+        const freshInp = document.getElementById('voice-budget-txt-' + campaignId);
+        if (freshInp) freshInp.value = heard;
+        submitVerbalBudget(campaignId);
+      };
+      rec.onerror = () => {
+        document.getElementById('ledDot').classList.remove('speaking');
+        document.getElementById('ledText').textContent = tMerchant('led_mic_blocked');
+        voiceBudgetFeedback[campaignId] = { error: false, text: tMerchant('mic_fallback_msg') };
+        renderAll();
+      };
+      rec.start();
+    }
+
+    async function confirmPendingCap(campaignId, doConfirm, viaSource = 'dashboard') {
+      const res = await fetch(`/api/campaigns/${campaignId}/cap/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: Boolean(doConfirm), actor: viaSource, source: viaSource })
+      });
+      if (res.ok) {
+        const d = await res.json();
+        delete voiceBudgetFeedback[campaignId];
+        document.getElementById('lcdMain').textContent = tMerchant('lcd_cap_set', { cap: fmtNum(d.campaign.max_budget) });
+        document.getElementById('lcdSub').textContent = tMerchant('lcd_audit_logged');
+      }
       await loadBriefing(currentLang);
       await loadOverview();
     }
@@ -1939,20 +2017,50 @@
           <button class="cap-chip ${c.max_budget === p ? 'active' : ''}" onclick="updateCap('${c.campaign_id}', ${p}, 'dashboard')">${fmtInr(p)}${p === 400 ? t('cap_preset_recommended') : ''}</button>
         `).join('');
 
+        const pendingPeriodKey = (ce.pending_confirmation && ce.pending_confirmation.period_key) || '48_hours';
+        const periodLocalized = (
+          pendingPeriodKey === 'this_week' ? (currentLang === 'hi' ? 'इस हफ्ते' : (currentLang === 'kn' ? 'ಈ ವಾರ' : 'this week')) :
+          pendingPeriodKey === 'today' ? (currentLang === 'hi' ? 'आज' : (currentLang === 'kn' ? 'ಇಂದು' : 'today')) :
+          pendingPeriodKey === 'this_month' ? (currentLang === 'hi' ? 'इस महीने' : (currentLang === 'kn' ? 'ಈ ತಿಂಗಳು' : 'this month')) :
+          pendingPeriodKey === 'this_weekend' ? (currentLang === 'hi' ? 'इस वीकेंड' : (currentLang === 'kn' ? 'ಈ ವಾರಾಂತ್ಯ' : 'this weekend')) :
+          (currentLang === 'hi' ? '48 घंटे' : (currentLang === 'kn' ? '48 ಗಂಟೆ' : '48 hours'))
+        );
+
         const pendingBanner = ce.pending_confirmation ? `
           <div class="pending-confirm-banner">
             <span>${t('pending_confirm_text', {
               oldCap: fmtInr(ce.pending_confirmation.previous_cap_inr),
               newCap: fmtInr(ce.pending_confirmation.requested_cap_inr),
-              period: ce.pending_confirmation.period_label || '48h',
+              period: periodLocalized,
               source: ce.pending_confirmation.requested_via
             })}</span>
-            <div style="display:flex;gap:6px;">
-              <button class="btn-primary" style="padding:5px 10px;" onclick="confirmPendingCap('${c.campaign_id}', true)">${t('btn_confirm_yes', { newCap: fmtInr(ce.pending_confirmation.requested_cap_inr) })}</button>
-              <button class="btn-secondary" style="padding:4px 9px;" onclick="confirmPendingCap('${c.campaign_id}', false)">${t('btn_confirm_no')}</button>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <button class="btn-primary" style="padding:5px 10px;" onclick="confirmPendingCap('${c.campaign_id}', true, 'dashboard')">${t('btn_confirm_yes', { newCap: fmtInr(ce.pending_confirmation.requested_cap_inr) })}</button>
+              <button class="btn-secondary" style="padding:4px 9px;" onclick="confirmPendingCap('${c.campaign_id}', false, 'dashboard')">${t('btn_confirm_no')}</button>
+              <button class="cap-chip" onclick="startVerbalBudgetMic('${c.campaign_id}', true)">${t('btn_voice_budget_mic')} (Yes / No)</button>
             </div>
           </div>
         ` : '';
+
+        const fbObj = voiceBudgetFeedback[c.campaign_id];
+        const feedbackBanner = fbObj ? `
+          <div style="margin-top:8px;padding:8px 11px;border-radius:8px;font-size:12px;font-weight:700;border:1px solid ${fbObj.error ? '#fda4af' : '#93c5fd'};background:${fbObj.error ? '#fff1f2' : '#eff6ff'};color:${fbObj.error ? '#9f1239' : '#1e3a8a'};">
+            ${fbObj.text}
+          </div>
+        ` : '';
+
+        const savedTranscript = (fbObj && fbObj.transcript) ? fbObj.transcript.replace(/"/g, '&quot;') : '';
+        const voiceBudgetBar = c.campaign_id === 'CMP-WINBACK-01' ? `
+          <div style="margin-top:9px;padding-top:9px;border-top:1px dashed #cbd5e1;">
+            <div style="font-size:11.5px;font-weight:800;color:#002970;margin-bottom:5px;">${t('voice_budget_title')}</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+              <button class="cap-chip" style="border-color:#00baf2;color:#0369a1;" onclick="startVerbalBudgetMic('${c.campaign_id}', false)">${t('btn_voice_budget_mic')}</button>
+              <input id="voice-budget-txt-${c.campaign_id}" type="text" value="${savedTranscript}" placeholder="${t('voice_budget_placeholder')}" style="flex:1;min-width:210px;padding:6px 10px;border:1px solid #94a3b8;border-radius:8px;font-size:12px;font-family:inherit;" onkeydown="if(event.key==='Enter')submitVerbalBudget('${c.campaign_id}')" />
+              <button class="cap-chip" style="background:#002970;color:#fff;border-color:#002970;" onclick="submitVerbalBudget('${c.campaign_id}')">${t('btn_voice_budget_check')}</button>
+            </div>
+            ${feedbackBanner}
+          </div>
+        ` : feedbackBanner;
 
         const capEditorHtml = `
           <div class="cap-editor-box">
@@ -1965,6 +2073,7 @@
               <input id="custom-cap-${c.campaign_id}" class="cap-input" type="number" value="${c.max_budget}" min="${ce.min_cap_inr}" max="${ce.max_cap_inr}" step="25" />
               <button class="cap-chip" onclick="applyCustomCap('${c.campaign_id}')">${t('btn_apply_custom')}</button>
             </div>
+            ${voiceBudgetBar}
             ${pendingBanner}
           </div>
         `;

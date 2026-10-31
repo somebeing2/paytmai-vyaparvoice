@@ -836,6 +836,22 @@
         </div>
       </div>
 
+      <div id="techSimulateSpendCard" class="card" style="display:none;background:#f8fafc;border:1.5px solid #0284c7;padding:12px 16px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+          <div>
+            <span class="pillar-tag">Technical Demo Control | Live Threshold Trigger</span>
+            <div style="font-size:13.5px;font-weight:800;color:#002970;">Simulate spend (CMP-WINBACK-01 Spoken 50% / 80% / 100% Threshold Alerts)</div>
+            <div style="font-size:11.5px;color:#475569;">Each threshold fires once per campaign, speaks in the active language, and writes an immutable audit log entry.</div>
+          </div>
+          <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;">
+            <button class="cap-chip" style="border-color:#0284c7;color:#0369a1;" onclick="simulateSpendTech('CMP-WINBACK-01', 50, null)">Simulate 50% Spend</button>
+            <button class="cap-chip" style="border-color:#d97706;color:#92400e;" onclick="simulateSpendTech('CMP-WINBACK-01', 80, null)">Simulate 80% Spend</button>
+            <button class="cap-chip" style="border-color:#be123c;color:#9f1239;" onclick="simulateSpendTech('CMP-WINBACK-01', 100, null)">Simulate 100% Cap</button>
+            <button class="cap-chip" onclick="simulateSpendTech('CMP-WINBACK-01', null, 50)">+Rs 50 Spend</button>
+          </div>
+        </div>
+      </div>
+
       <div class="nav-tabs">
         <button class="tab-btn active" id="tabBtnGrowth" onclick="switchTab('growth', this)">1. Grow Business</button>
         <button class="tab-btn" id="tabBtnOps" onclick="switchTab('ops', this)">2. Stock & Customer Care</button>
@@ -1174,6 +1190,8 @@
       viewMode = mode;
       document.getElementById('modeMerchant').classList.toggle('active', mode === 'merchant');
       document.getElementById('modeTechnical').classList.toggle('active', mode === 'technical');
+      const simCard = document.getElementById('techSimulateSpendCard');
+      if (simCard) simCard.style.display = (mode === 'technical') ? 'block' : 'none';
       applyStaticChromeTranslations();
       renderAll();
       if (document.getElementById('panel-lab').classList.contains('active')) {
@@ -1569,6 +1587,70 @@
       await loadOverview();
     }
 
+    function handleNewlyFiredAlerts(alerts) {
+      if (!alerts || !alerts.length) return;
+      const latest = alerts[alerts.length - 1];
+      const spokenMsg = (latest.messages && latest.messages[currentLang]) || (latest.messages && latest.messages.en) || '';
+      if (spokenMsg) {
+        const vBox = document.getElementById('voiceReplyBox');
+        if (vBox) {
+          vBox.style.display = 'block';
+          vBox.innerHTML = `<strong>${tMerchant('sb_reply')} [${latest.threshold_pct}%]</strong> ${spokenMsg}`;
+        }
+        speakViaActiveProvider(spokenMsg, currentLang, latest.messages ? latest.messages.en : spokenMsg);
+      }
+    }
+
+    async function simulateSpendTech(campaignId, targetPct, addRupees) {
+      const payload = {};
+      if (targetPct !== null && targetPct !== undefined) payload.target_pct = Number(targetPct);
+      if (addRupees !== null && addRupees !== undefined) payload.add_rupees = Number(addRupees);
+      const res = await fetch(`/api/campaigns/${campaignId}/simulate-spend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        alert(err.detail || 'Cannot simulate spend');
+        return;
+      }
+      const data = await res.json();
+      document.getElementById('lcdMain').textContent = tMerchant('lcd_interim_spent', { spent: fmtNum(data.campaign.budget_spent) });
+      document.getElementById('lcdSub').textContent = tMerchant('lcd_interim_sub', {
+        scans: fmtNum(data.campaign.treatment_returned),
+        cap: fmtNum(data.campaign.max_budget)
+      });
+      handleNewlyFiredAlerts(data.newly_fired_alerts || (data.campaign && data.campaign.newly_fired_alerts));
+      await loadBriefing(currentLang);
+      await loadOverview();
+    }
+
+    async function triggerQuickExtend(campaignId, currentCap) {
+      const proposed = Math.min(2500, Number(currentCap) + 100);
+      const res = await fetch(`/api/campaigns/${campaignId}/cap`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          new_cap_inr: proposed,
+          actor: 'dashboard',
+          source: 'dashboard',
+          period_key: '48_hours',
+          lang: currentLang,
+          confirmed: false
+        })
+      });
+      if (res.ok) {
+        const d = await res.json();
+        const promptMsg = d.campaign && d.campaign.confirmation_prompt;
+        if (promptMsg) {
+          voiceBudgetFeedback[campaignId] = { error: false, text: promptMsg };
+          speakViaActiveProvider(promptMsg, currentLang, promptMsg);
+        }
+      }
+      await loadOverview();
+    }
+
     async function stepLiveCmp(campaignId) {
       const res = await fetch(`/api/campaigns/${campaignId}/step-live`, {
         method: 'POST',
@@ -1586,6 +1668,8 @@
         scans: fmtNum(data.campaign.treatment_returned),
         cap: fmtNum(data.campaign.max_budget)
       });
+      handleNewlyFiredAlerts(data.campaign && data.campaign.newly_fired_alerts);
+      await loadBriefing(currentLang);
       await loadOverview();
     }
 
@@ -1637,6 +1721,8 @@
           cap: fmtNum(data.campaign.max_budget)
         });
       }
+      handleNewlyFiredAlerts(data.campaign && data.campaign.newly_fired_alerts);
+      await loadBriefing(currentLang);
       await loadOverview();
     }
 
@@ -2094,6 +2180,39 @@
           </div>
         `;
 
+        const thrList = c.threshold_alerts || [];
+        const thresholdAlertsHtml = thrList.map(al => {
+          const pct = al.threshold_pct;
+          const borderCol = pct >= 100 ? '#be123c' : (pct >= 80 ? '#d97706' : '#0284c7');
+          const bgCol = pct >= 100 ? '#fff1f2' : (pct >= 80 ? '#fffbeb' : '#eff6ff');
+          const txtCol = pct >= 100 ? '#881337' : (pct >= 80 ? '#78350f' : '#1e3a8a');
+          const titleKey = pct >= 100 ? 'threshold_100_title' : (pct >= 80 ? 'threshold_80_title' : 'threshold_50_title');
+          const usedPctNow = Math.round((al.spent_inr / Math.max(1, al.max_budget_inr)) * 100);
+          const msgTxt = isTech
+            ? `[THRESHOLD ${pct}% FIRED @ ${al.fired_ts}] Spent Rs ${al.spent_inr} of Rs ${al.max_budget_inr} (${al.funded_bills} funded bills; Rs ${al.remaining_inr} remaining).`
+            : (pct >= 100
+                ? t('threshold_100_msg', { cap: fmtInr(al.max_budget_inr), spent: fmtInr(al.spent_inr) })
+                : (pct >= 80
+                    ? t('threshold_80_msg', { pct: fmtNum(usedPctNow), cap: fmtInr(al.max_budget_inr), spent: fmtInr(al.spent_inr), rem: fmtInr(al.remaining_inr) })
+                    : t('threshold_50_msg', { cap: fmtInr(al.max_budget_inr), spent: fmtInr(al.spent_inr), paid: fmtNum(al.funded_bills), rem: fmtInr(al.remaining_inr) })));
+          const actions80 = (pct === 80 && c.status !== 'PAUSED_STOP_LOSS' && c.status !== 'CAP_PAUSED' && c.budget_spent < c.max_budget) ? `
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:7px;">
+              <button class="btn-primary" style="padding:5px 11px;font-size:11.5px;" onclick="triggerQuickExtend('${c.campaign_id}', ${c.max_budget})">${t('btn_alert_extend')}</button>
+              <button class="btn-secondary" style="padding:5px 11px;font-size:11.5px;border-color:#be123c;color:#be123c;" onclick="toggleStopLoss('${c.campaign_id}', true)">${t('btn_alert_stop')}</button>
+            </div>
+          ` : '';
+          return `
+            <div style="background:${bgCol};border:1.5px solid ${borderCol};border-radius:10px;padding:9px 12px;margin-bottom:8px;color:${txtCol};font-size:12px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                <strong>${t(titleKey)}</strong>
+                <button class="cap-chip" style="padding:2px 8px;font-size:11px;" onclick="speakViaActiveProvider('${((al.messages && al.messages[currentLang]) || '').replace(/'/g, "\\'")}', currentLang, '${((al.messages && al.messages.en) || '').replace(/'/g, "\\'")}')">${tMerchant('btn_speak')}</button>
+              </div>
+              <div style="margin-top:3px;">${msgTxt}</div>
+              ${actions80}
+            </div>
+          `;
+        }).join('');
+
         let liveMonitorHtml = '';
         if (li.is_interim || c.status === 'SIMULATED_48H') {
           const monLabel = isTech
@@ -2188,6 +2307,7 @@
             </div>
 
             ${liveSyncHtml}
+            ${thresholdAlertsHtml}
             ${capEditorHtml}
             ${liveMonitorHtml}
             ${warnHtml}

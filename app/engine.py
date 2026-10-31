@@ -56,6 +56,160 @@ def now_label() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _ensure_threshold_table(cur) -> None:
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS campaign_threshold_alerts (
+            campaign_id TEXT NOT NULL,
+            threshold_pct INTEGER NOT NULL,
+            spent_inr INTEGER NOT NULL,
+            max_budget_inr INTEGER NOT NULL,
+            fired_ts TEXT NOT NULL,
+            PRIMARY KEY (campaign_id, threshold_pct)
+        )
+        """
+    )
+
+
+def _format_threshold_alert_texts(
+    threshold_pct: int,
+    spent_inr: int,
+    max_budget_inr: int,
+    funded_bills: int,
+) -> Dict[str, str]:
+    rem = max(0, max_budget_inr - spent_inr)
+    used_pct = int(round((spent_inr / max(1, max_budget_inr)) * 100.0))
+    if threshold_pct == 50:
+        return {
+            "en": assert_valid_merchant_copy(
+                f"50 percent budget alert. Rs {spent_inr} of your Rs {max_budget_inr} offer cap is used across {funded_bills} bills, with Rs {rem} remaining.",
+                check_sentence_length=True,
+            ),
+            "hi": assert_valid_merchant_copy(
+                f"50 प्रतिशत बजट अलर्ट। आपके {max_budget_inr} रुपये बजट में से {spent_inr} रुपये ({funded_bills} बिल) उपयोग हुए हैं और {rem} रुपये बाकी हैं।",
+                check_sentence_length=False,
+            ),
+            "kn": assert_valid_merchant_copy(
+                f"ಶೇಕಡಾ 50 ಬಜೆಟ್ ಸೂಚನೆ. ನಿಮ್ಮ {max_budget_inr} ರೂಪಾಯಿ ಮಿತಿಯಲ್ಲಿ {spent_inr} ರೂಪಾಯಿ ({funded_bills} ಬಿಲ್) ಬಳಕೆಯಾಗಿದೆ, {rem} ರೂಪಾಯಿ ಉಳಿದಿದೆ.",
+                check_sentence_length=False,
+            ),
+        }
+    if threshold_pct == 80:
+        return {
+            "en": assert_valid_merchant_copy(
+                f"80 percent budget alert. Rs {spent_inr} of your Rs {max_budget_inr} cap is used ({used_pct} percent), leaving Rs {rem}. Say extend to raise budget or stop to pause now.",
+                check_sentence_length=True,
+            ),
+            "hi": assert_valid_merchant_copy(
+                f"80 प्रतिशत बजट अलर्ट। {max_budget_inr} रुपये में से {spent_inr} रुपये ({used_pct} प्रतिशत) खर्च हुए हैं, {rem} रुपये बाकी हैं। बजट बढ़ाने के लिए बढ़ाओ बोलें या रोकने के लिए रोको बोलें।",
+                check_sentence_length=False,
+            ),
+            "kn": assert_valid_merchant_copy(
+                f"ಶೇಕಡಾ 80 ಬಜೆಟ್ ಸೂಚನೆ. {max_budget_inr} ರೂಪಾಯಿ ಮಿತಿಯಲ್ಲಿ {spent_inr} ರೂಪಾಯಿ ({used_pct} ಶೇಕಡಾ) ಬಳಕೆಯಾಗಿದೆ, {rem} ರೂಪಾಯಿ ಉಳಿದಿದೆ. ಹೆಚ್ಚಿಸಲು ವಿಸ್ತರಿಸಿ ಅಥವಾ ನಿಲ್ಲಿಸಲು ನಿಲ್ಲಿಸಿ ಎಂದು ಹೇಳಿ.",
+                check_sentence_length=False,
+            ),
+        }
+    return {
+        "en": assert_valid_merchant_copy(
+            f"100 percent cap reached. Rs {spent_inr} of your Rs {max_budget_inr} cap is used. Cashback is paused automatically and later customers pay regular price.",
+            check_sentence_length=True,
+        ),
+        "hi": assert_valid_merchant_copy(
+            f"100 प्रतिशत बजट पूरा हुआ। {max_budget_inr} रुपये में से {spent_inr} रुपये उपयोग हो चुके हैं। कैशबैक अपने आप रुक गया है और अगले ग्राहक सामान्य कीमत देंगे।",
+            check_sentence_length=False,
+        ),
+        "kn": assert_valid_merchant_copy(
+            f"ಶೇಕಡಾ 100 ಬಜೆಟ್ ಮಿತಿ ತಲುಪಿದೆ. {max_budget_inr} ರೂಪಾಯಿಯಲ್ಲಿ {spent_inr} ರೂಪಾಯಿ ಬಳಕೆಯಾಗಿದೆ. ಕ್ಯಾಶ್‌ಬ್ಯಾಕ್ ಸ್ವಯಂಚಾಲಿತವಾಗಿ ನಿಂತಿದೆ ಮತ್ತು ಮುಂದಿನ ಗ್ರಾಹಕರಿಗೆ ಸಾಮಾನ್ಯ ಬಿಲ್ ಅನ್ವಯಿಸುತ್ತದೆ.",
+            check_sentence_length=False,
+        ),
+    }
+
+
+def _check_and_fire_thresholds(cur, campaign_id: str) -> List[Dict[str, Any]]:
+    _ensure_threshold_table(cur)
+    cmp_row = cur.execute("SELECT * FROM campaigns WHERE campaign_id = ?", (campaign_id,)).fetchone()
+    if not cmp_row:
+        return []
+    spent = int(cmp_row["budget_spent"])
+    max_cap = int(cmp_row["max_budget"])
+    funded = int(cmp_row["funded_redemptions"])
+    if max_cap <= 0 or spent <= 0:
+        return []
+
+    used_pct = (spent / max_cap) * 100.0
+    existing = {
+        int(r["threshold_pct"])
+        for r in cur.execute(
+            "SELECT threshold_pct FROM campaign_threshold_alerts WHERE campaign_id = ?",
+            (campaign_id,),
+        ).fetchall()
+    }
+    newly_fired: List[Dict[str, Any]] = []
+    for thr in (50, 80, 100):
+        if used_pct >= thr and thr not in existing:
+            ts = now_label()
+            rem = max(0, max_cap - spent)
+            cur.execute(
+                """
+                INSERT INTO campaign_threshold_alerts
+                (campaign_id, threshold_pct, spent_inr, max_budget_inr, fired_ts)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (campaign_id, thr, spent, max_cap, ts),
+            )
+            cur.execute(
+                "INSERT INTO audit_logs (ts, actor, event_type, detail) VALUES (?, ?, ?, ?)",
+                (
+                    ts,
+                    "VyaparVoice Threshold Monitor",
+                    f"THRESHOLD_{thr}_ALERT",
+                    f"{campaign_id} crossed {thr}% cap threshold: spent Rs {spent} of Rs {max_cap} ({funded} funded bills; Rs {rem} remaining).",
+                ),
+            )
+            texts = _format_threshold_alert_texts(thr, spent, max_cap, funded)
+            newly_fired.append(
+                {
+                    "campaign_id": campaign_id,
+                    "threshold_pct": thr,
+                    "spent_inr": spent,
+                    "max_budget_inr": max_cap,
+                    "remaining_inr": rem,
+                    "funded_bills": funded,
+                    "fired_ts": ts,
+                    "actions_available": ["extend", "stop"] if thr == 80 else [],
+                    "messages": texts,
+                }
+            )
+    return newly_fired
+
+
+def _get_campaign_threshold_alerts(cur, campaign_id: str, funded_bills: int) -> List[Dict[str, Any]]:
+    _ensure_threshold_table(cur)
+    rows = cur.execute(
+        "SELECT * FROM campaign_threshold_alerts WHERE campaign_id = ? ORDER BY threshold_pct ASC",
+        (campaign_id,),
+    ).fetchall()
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        thr = int(r["threshold_pct"])
+        spent = int(r["spent_inr"])
+        max_cap = int(r["max_budget_inr"])
+        out.append(
+            {
+                "campaign_id": campaign_id,
+                "threshold_pct": thr,
+                "spent_inr": spent,
+                "max_budget_inr": max_cap,
+                "remaining_inr": max(0, max_cap - spent),
+                "funded_bills": funded_bills,
+                "fired_ts": r["fired_ts"],
+                "actions_available": ["extend", "stop"] if thr == 80 else [],
+                "messages": _format_threshold_alert_texts(thr, spent, max_cap, funded_bills),
+            }
+        )
+    return out
+
+
 def _ensure_pending_table(cur) -> None:
     cur.execute(
         """
@@ -141,6 +295,9 @@ def _enrich_campaign_dict(cur, cmp_row: Dict[str, Any]) -> Dict[str, Any]:
         "presets_inr": list(settings.cap_presets_inr),
         "pending_confirmation": pending_dict,
     }
+    item["threshold_alerts"] = _get_campaign_threshold_alerts(
+        cur, item["campaign_id"], int(item["funded_redemptions"])
+    )
 
     passes_count = cur.execute(
         "SELECT COUNT(*) AS c FROM campaign_passes WHERE campaign_id = ? AND arm = 'TREATMENT'",
@@ -1387,9 +1544,11 @@ def step_live_campaign_scans(
                 f"spent Rs {budget_spent} / Rs {cmp_after['max_budget']}; status={final_status}).",
             ),
         )
+        newly_fired = _check_and_fire_thresholds(cur, campaign_id)
         conn.commit()
         raw_final = dict(cur.execute("SELECT * FROM campaigns WHERE campaign_id = ?", (campaign_id,)).fetchone())
         enriched = _enrich_campaign_dict(cur, raw_final)
+        enriched["newly_fired_alerts"] = newly_fired
         conn.close()
         return enriched
 
@@ -1502,9 +1661,128 @@ def simulate_campaign_48h(
             ),
         )
 
+        newly_fired = _check_and_fire_thresholds(cur, campaign_id)
         conn.commit()
         raw_final = dict(cur.execute("SELECT * FROM campaigns WHERE campaign_id = ?", (campaign_id,)).fetchone())
         enriched = _enrich_campaign_dict(cur, raw_final)
+        enriched["newly_fired_alerts"] = newly_fired
+        conn.close()
+        return enriched
+
+
+def simulate_campaign_spend(
+    campaign_id: str,
+    target_pct: Optional[int] = None,
+    add_rupees: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Task 4 Technical View 'Simulate spend' helper: advances campaign spend to a target percentage
+    (e.g. 50%, 80%, 100%) or by +add_rupees without ever exceeding max_budget, firing newly crossed
+    threshold alerts once per campaign and logging to audit_logs.
+    """
+    lock = get_db_lock()
+    with lock:
+        conn = get_conn()
+        cur = conn.cursor()
+        cmp_row = cur.execute("SELECT * FROM campaigns WHERE campaign_id = ?", (campaign_id,)).fetchone()
+        if not cmp_row:
+            conn.close()
+            raise ValueError("Campaign not found")
+        if cmp_row["status"] == "PAUSED_STOP_LOSS":
+            conn.close()
+            raise ValueError("Campaign is paused; resume before simulating spend.")
+        if cmp_row["status"] == "PENDING_APPROVAL":
+            conn.close()
+            approve_campaign(campaign_id, via="Technical Simulate Spend")
+            conn = get_conn()
+            cur = conn.cursor()
+            cmp_row = cur.execute("SELECT * FROM campaigns WHERE campaign_id = ?", (campaign_id,)).fetchone()
+
+        max_cap = int(cmp_row["max_budget"])
+        offer = int(cmp_row["offer_rupees"])
+        cur_spent = int(cmp_row["budget_spent"])
+        max_funded_cap = (max_cap // offer) * offer
+
+        if target_pct is not None:
+            pct = max(1, min(100, int(target_pct)))
+            if pct >= 100:
+                desired_spent = max_funded_cap
+            else:
+                req_units = math.ceil(((pct / 100.0) * max_cap) / offer)
+                desired_spent = min(max_funded_cap, req_units * offer)
+        elif add_rupees is not None:
+            units = max(1, int(add_rupees) // offer)
+            desired_spent = min(max_funded_cap, cur_spent + units * offer)
+        else:
+            desired_spent = min(max_funded_cap, cur_spent + offer * 2)
+
+        extra_units = max(0, (desired_spent - cur_spent) // offer)
+        available_rows = cur.execute(
+            "SELECT customer_id FROM campaign_passes WHERE campaign_id = ? AND arm = 'TREATMENT' AND status = 'ISSUED' ORDER BY customer_id ASC",
+            (campaign_id,),
+        ).fetchall()
+        avail_cids = [r["customer_id"] for r in available_rows]
+        conn.close()
+
+        units_from_passes = min(extra_units, len(avail_cids))
+        for idx in range(units_from_passes):
+            bill_amt = 217 if idx % 2 == 0 else 218
+            redeem_single_pass_atomic(campaign_id, avail_cids[idx], bill_amt)
+
+        rem_synthetic_units = extra_units - units_from_passes
+        conn = get_conn()
+        cur = conn.cursor()
+        if rem_synthetic_units > 0:
+            add_spend = rem_synthetic_units * offer
+            add_sales = rem_synthetic_units * 218
+            cur.execute(
+                """
+                UPDATE campaigns
+                SET budget_spent = MIN(max_budget, budget_spent + ?),
+                    funded_redemptions = funded_redemptions + ?,
+                    treatment_returned = treatment_returned + ?,
+                    gross_treatment_sales = gross_treatment_sales + ?,
+                    cap_reached = CASE WHEN budget_spent + ? >= max_budget THEN 1 ELSE cap_reached END
+                WHERE campaign_id = ?
+                """,
+                (add_spend, rem_synthetic_units, rem_synthetic_units, add_sales, add_spend, campaign_id),
+            )
+
+        cmp_after = cur.execute("SELECT * FROM campaigns WHERE campaign_id = ?", (campaign_id,)).fetchone()
+        done_cnt = int(cmp_after["treatment_returned"])
+        gross_sales = int(cmp_after["gross_treatment_sales"])
+        budget_spent = int(cmp_after["budget_spent"])
+        h_ret = 1 if done_cnt >= 6 else 0
+        organic_expected = (h_ret / max(1, int(cmp_after["holdout_count"]))) * int(cmp_after["treatment_count"])
+        net_inc_visits = max(0.0, done_cnt - organic_expected)
+        avg_bill = gross_sales / max(1, done_cnt) if done_cnt > 0 else 217.5
+        inc_sales = int(round(net_inc_visits * avg_bill))
+        roi_mult = round(inc_sales / max(1, budget_spent), 1) if budget_spent > 0 else 0.0
+        new_status = "CAP_PAUSED" if budget_spent >= max_funded_cap and max_funded_cap > 0 else "LIVE_DISPATCHED"
+
+        cur.execute(
+            """
+            UPDATE campaigns
+            SET status = ?, holdout_returned = ?, incremental_sales = ?, roi_multiple = ?,
+                cap_reached = CASE WHEN ? >= ? THEN 1 ELSE cap_reached END
+            WHERE campaign_id = ?
+            """,
+            (new_status, h_ret, inc_sales, roi_mult, budget_spent, max_funded_cap, campaign_id),
+        )
+        cur.execute(
+            "INSERT INTO audit_logs (ts, actor, event_type, detail) VALUES (?, ?, ?, ?)",
+            (
+                now_label(),
+                "Technical Simulate Spend",
+                "TECH_SIMULATE_SPEND",
+                f"Simulated spend on {campaign_id}: Rs {cur_spent} -> Rs {budget_spent} of Rs {max_cap} ({round(budget_spent/max(1,max_cap)*100,1)}%).",
+            ),
+        )
+        newly_fired = _check_and_fire_thresholds(cur, campaign_id)
+        conn.commit()
+        raw_final = dict(cur.execute("SELECT * FROM campaigns WHERE campaign_id = ?", (campaign_id,)).fetchone())
+        enriched = _enrich_campaign_dict(cur, raw_final)
+        enriched["newly_fired_alerts"] = newly_fired
         conn.close()
         return enriched
 
@@ -1650,16 +1928,56 @@ def handle_voice_command(utterance: str, lang: str = "en") -> Dict[str, Any]:
                 "guardrail": gr,
             }
 
-    # 4. Stop-loss / resume voice commands
-    if any(p in text for p in ["stop loss", "stop-loss", "pause campaign", "stop offer", "halt offer"]):
-        updated = set_campaign_stop_loss("CMP-WINBACK-01", pause=True, actor=f"Voice ({lang.upper()})")
-        reply = (
-            f"Stop-loss activated! Pass redemptions are paused immediately with {updated['budget_spent']} rupees spent "
-            f"out of your {updated['max_budget']} rupee limit."
+    # 4. Quick 'extend' (confirmed budget flow) and 'stop' / stop-loss voice commands (EN / HI / KN)
+    if text in ("extend", "extend budget", "extend offer", "बढ़ाओ", "बजट बढ़ाओ", "ವಿಸ್ತರಿಸಿ", "ಬಜೆಟ್ ಹೆಚ್ಚಿಸಿ"):
+        conn_ext = get_conn()
+        cmp_ext = conn_ext.execute("SELECT * FROM campaigns WHERE campaign_id = 'CMP-WINBACK-01'").fetchone()
+        conn_ext.close()
+        settings = get_settings()
+        proposed = min(settings.max_cap_inr, int(cmp_ext["max_budget"]) + 100)
+        res = update_campaign_cap(
+            "CMP-WINBACK-01",
+            new_cap_inr=proposed,
+            actor="voice",
+            confirmed=False,
+            period_key="48_hours",
+            lang=lg,
+            source="voice",
         )
         return {
             "utterance": utterance,
-            "reply": assert_valid_merchant_copy(reply),
+            "reply": res["confirmation_prompt"],
+            "action_taken": "CAP_CONFIRMATION_PENDING",
+            "requested_cap_inr": proposed,
+            "period_key": "48_hours",
+        }
+
+    if any(
+        p in text
+        for p in [
+            "stop loss", "stop-loss", "pause campaign", "stop offer", "halt offer",
+            "रोको", "ऑफर रोको", "बंद करो", "ನಿಲ್ಲಿಸಿ", "ಆಫರ್ ನಿಲ್ಲಿಸಿ",
+        ]
+    ) or text == "stop":
+        updated = set_campaign_stop_loss("CMP-WINBACK-01", pause=True, actor="voice")
+        if lg == "hi":
+            reply = assert_valid_merchant_copy(
+                f"ऑफर तुरंत रोक दिया गया है। आपके {updated['max_budget']} रुपये बजट में से {updated['budget_spent']} रुपये उपयोग हुए हैं।",
+                check_sentence_length=False,
+            )
+        elif lg == "kn":
+            reply = assert_valid_merchant_copy(
+                f"ಆಫರ್ ತಕ್ಷಣ ನಿಲ್ಲಿಸಲಾಗಿದೆ. ನಿಮ್ಮ {updated['max_budget']} ರೂಪಾಯಿ ಮಿತಿಯಲ್ಲಿ {updated['budget_spent']} ರೂಪಾಯಿ ಬಳಕೆಯಾಗಿದೆ.",
+                check_sentence_length=False,
+            )
+        else:
+            reply = assert_valid_merchant_copy(
+                f"Stop-loss activated! Pass redemptions are paused immediately with {updated['budget_spent']} rupees spent "
+                f"out of your {updated['max_budget']} rupee limit."
+            )
+        return {
+            "utterance": utterance,
+            "reply": reply,
             "action_taken": "STOP_LOSS_TRIGGERED",
         }
 

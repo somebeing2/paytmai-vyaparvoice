@@ -24,6 +24,7 @@ from .engine import (
     resolve_pending_cap_change,
     set_campaign_stop_loss,
     simulate_campaign_48h,
+    simulate_campaign_spend,
     step_live_campaign_scans,
     update_campaign_cap,
 )
@@ -112,6 +113,11 @@ class STTRequestPayload(BaseModel):
 
 class StepLivePayload(BaseModel):
     step_size: int = 4
+
+
+class SimulateSpendPayload(BaseModel):
+    target_pct: Optional[int] = None
+    add_rupees: Optional[int] = None
 
 
 class StopLossPayload(BaseModel):
@@ -343,6 +349,25 @@ def api_step_live_campaign(campaign_id: str, payload: Optional[StepLivePayload] 
     try:
         cmp_data = step_live_campaign_scans(campaign_id, step_size=body.step_size)
         return {"ok": True, "campaign": cmp_data}
+    except ValueError as exc:
+        code = 404 if "not found" in str(exc).lower() else 400
+        raise HTTPException(status_code=code, detail=str(exc))
+
+
+@app.post("/api/campaigns/{campaign_id}/simulate-spend")
+def api_simulate_campaign_spend(campaign_id: str, payload: Optional[SimulateSpendPayload] = None):
+    body = payload or SimulateSpendPayload()
+    try:
+        cmp_data = simulate_campaign_spend(
+            campaign_id,
+            target_pct=body.target_pct,
+            add_rupees=body.add_rupees,
+        )
+        return {
+            "ok": True,
+            "campaign": cmp_data,
+            "newly_fired_alerts": cmp_data.get("newly_fired_alerts", []),
+        }
     except ValueError as exc:
         code = 404 if "not found" in str(exc).lower() else 400
         raise HTTPException(status_code=code, detail=str(exc))

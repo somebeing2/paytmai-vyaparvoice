@@ -60,7 +60,7 @@ def run_finals_7tasks_suite() -> None:
 
         r_i18n = client.get("/static/i18n.js")
         assert r_i18n.status_code == 200
-        i18n_txt = r_i18n.text
+        i18n_txt = r_i18n.text.replace("\r\n", "\n")
         assert "Draft - unreviewed by native speaker" in i18n_txt
         assert not find_formatting_violations(i18n_txt)
 

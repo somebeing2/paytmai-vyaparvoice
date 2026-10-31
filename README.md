@@ -34,11 +34,34 @@ Open **`http://127.0.0.1:8000`** in Chrome or Edge.
 
 ## Testing & Verification Suite
 
-Run the 12-gate automated preflight and QA suite (secret scan, `render.yaml` check, formatting hygiene, unit economics, Sarvam/Groq mocks, 4-mode failover matrix, `DEMO_PIN` & IP rate limits, cache seeding, and 21/21 baseline QA checks):
+Run the 13-gate automated preflight, 60-case evaluation benchmark, and pytest QA suite (secret scan, `render.yaml` check, formatting hygiene, unit economics, Sarvam/Groq mocks, 4-mode failover matrix, `DEMO_PIN` & IP rate limits, 60-case multilingual voice/guardrail/grounding benchmark, and full E2E pytest checks):
 
 ```bash
 python3 scripts/preflight.py
+python3 scripts/eval_benchmark.py --assert-targets
+pytest -v
 ```
+
+---
+
+## Flagship Portfolio Capabilities (v1.8)
+
+In addition to the core 3-language voice briefing and `80/20` holdout engine, `v1.8` includes:
+
+1. **Store Category Margin Presets & Zero-PII UPI CSV Ingestion (`app/csv_ingest.py`):**
+   - Switch between `Darshini / Cafe (30% margin)`, `Grocery Kirana (18% thin margin)`, and `Bakery / Sweet Shop (35% margin)` with automatic break-even recalibration.
+   - Upload real merchant UPI CSV statements (`POST /api/ledger/upload-csv`); raw payer IDs and phone numbers are `SHA-256` hashed in memory before SQLite storage (`zero_pii_hashed = True`).
+2. **Customer QR Pass Wallet, Offline ISO-18004 SVG QR & Counter Bill Scanner (`app/pass_wallet.py`, `app/audit_qr.py`):**
+   - Renders pure-Python ISO/IEC 18004 Version 3-L (`29x29`) offline SVG QR codes (`GET /api/campaigns/{id}/pass-qr.svg`) with zero external CDN calls.
+   - Counter scanner (`POST /api/campaigns/{id}/scan-pass`) enforces `min_bill` rules and atomic `BEGIN IMMEDIATE` rupee budget caps (`50% / 80% / 100%` threshold alerts), paired with localized DPDP-compliant (`STOP` opt-out) WhatsApp pass previews.
+3. **Multi-Shop Pooled Pilot Power Simulator (`POST /api/pilot-simulate`):**
+   - Simulates `1` to `200` shops across `1` to `12` holdout waves (`Wilson 95% CI`, `Fisher exact`, Fleiss normal power) showing why `1` shop (`40` buyers) is directional whereas `50` shops (`2,000` buyers) achieves `>=80%` statistical power.
+4. **Tamper-Evident `SHA-256` Audit Chain, Deep `/api/healthz` Probe & Printable Closing Report:**
+   - `GET /api/audit/export` (`JSON` / `CSV`) links sequential `audit_logs` records with a `SHA-256` hash chain from genesis so any tampering breaks verification.
+   - `GET /api/healthz` probes SQLite journal mode, `BEGIN IMMEDIATE` write-lock latency, audit chain validity, and provider circuit-breaker state.
+   - `GET /api/report/closing-summary` renders a self-contained A4 printable Closing Profit & Holdout Report, and `/manifest.json` enables mobile companion home-screen installation.
+5. **Reproducible 60-Case Multilingual Evaluation Benchmark (`scripts/eval_benchmark.py` -> `results/eval_benchmark.md`):**
+   - Automated CI gate (`.github/workflows/ci.yml`) verifying `60/60` (`100%`) accuracy across EN/HI/KN + Indic-digit voice commands, `6` adversarial guardrail rules, and Indic/ASCII numeric grounding + Zero-PII checks. See `docs/PORTFOLIO_CASE_STUDY.md` for full engineering notes.
 
 ---
 
@@ -128,5 +151,5 @@ curl -i https://paytmai-vyaparvoice.onrender.com/health
 
 1. **Synthetic 60-Day Sample Ledger:** All store metrics (`240` customers, `1,613` historical QR transactions ending on `25 October 2026`, `seed = 20261025`) come from a deterministic synthetic ledger modelling a Bengaluru darshini and provisions store, not live production Paytm merchant data.
 2. **Unreviewed Vernacular Drafts:** All Hindi and Kannada strings and voice scripts are marked `"Draft - unreviewed by native speaker"` and require native-speaker copy review before production merchant rollout.
-3. **Proposed Voice-Device Interaction Design:** Two-way spoken budget setting and Q&A on an AI Soundbox or Paytm for Business companion interface is a proposed product workflow; this prototype captures spoken input (capped at `10` seconds) via the browser microphone with editable transcript and typed/chip fallbacks.
+3. **Proposed Voice-Device & Companion Interaction Design:** To our knowledge the standard Paytm Soundbox is speaker-based with no microphone; this is to be validated with Paytm. Two-way spoken budget setting and Q&A run via the Paytm for Business companion mobile app microphone (or future mic-capable hardware), while spoken briefings play on the Soundbox speaker or phone. This prototype captures spoken input (capped at `10` seconds) via the browser microphone with editable transcript and typed/chip fallbacks.
 4. **Modelled Profit & Single-Shop Sample Size:** Profit figures (`Grade C`) rely on explicit assumptions (`30%` gross shop margin and `5%` Paytm promo fee on redeemed bills) not observable on raw UPI receipts, and a single-shop `40`-customer wave (`32` with offer vs `8` holdout) is directional (`p = 0.2364`); validating true incremental lift requires a live pooled multi-shop randomized control trial (`n >= 2,000` across ~`50` shops).

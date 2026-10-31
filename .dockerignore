@@ -1,0 +1,38 @@
+# Prevent local secrets, git history, runtime databases, caches, and pitch binaries
+# from ever entering Docker image layers during `docker build`.
+
+# Secrets & environment files
+.env
+.env.*
+!.env.example
+
+# Version control & CI metadata
+.git
+.gitignore
+.github
+
+# Runtime SQLite databases, WAL journals, and visitor sandboxes
+data/*.db
+data/*.db-shm
+data/*.db-wal
+app/sessions_db/
+app/*.db-shm
+app/*.db-wal
+
+# Python / test / build caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Non-runtime pitch decks, PDFs, screenshots, and archive bundles
+deck/
+exports/
+docs/*.pdf
+docs/screenshots/
+*.zip

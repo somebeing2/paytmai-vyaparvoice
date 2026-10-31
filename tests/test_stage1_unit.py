@@ -262,7 +262,7 @@ def test_merchant_copy_lint_and_draft_badges() -> None:
                     assert "DRAFT" in br["review_status"]
                 else:
                     assert br["is_draft_translation"] is False
-                    assert br["review_status"] == "EN author-checked, native review pending"
+                    assert br["review_status"] == "English Copy Verified"
 
             for utt in ("Approve win-back", "Fast forward 48 hours", "Milk stock", "How were sales"):
                 vr = handle_voice_command(utt, lang="en")

@@ -5,13 +5,31 @@ from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .audit_qr import (
+    compute_hash_chained_audit_log,
+    export_audit_chain_csv,
+    get_deep_healthz_status,
+    render_pass_qr_svg,
+)
 from .config import get_settings
 from .copy_lint import assert_valid_merchant_copy
+from .csv_ingest import (
+    apply_store_category_preset,
+    generate_sample_merchant_csv,
+    ingest_merchant_upi_csv,
+)
 from .database import DB_PATH, get_conn, init_and_seed_db, use_db_path
+from .pass_wallet import (
+    get_campaign_passes_wallet,
+    render_printable_closing_report_html,
+    scan_customer_pass_at_counter,
+    send_whatsapp_sandbox_preview,
+    simulate_multi_shop_pilot,
+)
 from .engine import (
     answer_merchant_question,
     approve_campaign,
@@ -171,6 +189,37 @@ class MerchantQAPayload(BaseModel):
 class TTSRequestPayload(BaseModel):
     text: str
     lang: str = "en"
+
+
+class StorePresetPayload(BaseModel):
+    preset_key: str
+
+
+class CsvUploadPayload(BaseModel):
+    csv_text: str
+    store_name: Optional[str] = None
+
+
+class ScanPassPayload(BaseModel):
+    customer_id: Optional[str] = None
+    bill_amount: int = 195
+
+
+class WhatsAppPreviewPayload(BaseModel):
+    lang: str = "en"
+
+
+class PilotSimulatePayload(BaseModel):
+    n_shops: int = 50
+    waves_per_shop: int = 1
+    offer_rupees: int = 25
+    avg_bill_inr: float = 217.50
+    gross_margin_pct: float = 30.0
+    paytm_fee_pct: float = 5.0
+    baseline_return_pct: float = 12.5
+    true_lift_pp: float = 18.0
+    max_cap_per_wave_inr: int = 300
+    seed: int = 20261031
 
 
 @app.api_route("/", methods=["GET", "HEAD"])
@@ -576,6 +625,133 @@ def api_reset(request: Request):
         "session_id": getattr(request.state, "demo_session_id", "local-default"),
         "message": "Your isolated demo session has been reset to the 8:30 PM closing state.",
     }
+
+
+@app.post("/api/store/preset")
+def api_store_preset(payload: StorePresetPayload):
+    try:
+        preset_info = apply_store_category_preset(payload.preset_key)
+        return {
+            "ok": True,
+            "store_preset": preset_info,
+            "overview": get_dashboard_overview(),
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/ledger/sample-csv")
+def api_sample_csv():
+    csv_body = generate_sample_merchant_csv()
+    return PlainTextResponse(
+        content=csv_body,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="sample_upi_statement.csv"'},
+    )
+
+
+@app.post("/api/ledger/upload-csv")
+def api_upload_csv(payload: CsvUploadPayload, request: Request):
+    enforce_ip_rate_limit(request, bucket="csv_upload")
+    try:
+        summary = ingest_merchant_upi_csv(payload.csv_text, store_name=payload.store_name)
+        return {
+            "ok": True,
+            "ingest_summary": summary,
+            "overview": get_dashboard_overview(),
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/campaigns/{campaign_id}/passes")
+def api_campaign_passes(campaign_id: str, lang: str = "en"):
+    try:
+        return get_campaign_passes_wallet(campaign_id, lang=lang)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.post("/api/campaigns/{campaign_id}/scan-pass")
+def api_scan_pass(campaign_id: str, payload: Optional[ScanPassPayload] = None):
+    body = payload or ScanPassPayload()
+    try:
+        return scan_customer_pass_at_counter(
+            campaign_id,
+            customer_id=body.customer_id,
+            bill_amount=body.bill_amount,
+        )
+    except ValueError as exc:
+        code = 404 if "not found" in str(exc).lower() else 400
+        raise HTTPException(status_code=code, detail=str(exc))
+
+
+@app.post("/api/campaigns/{campaign_id}/whatsapp-preview")
+def api_whatsapp_preview(campaign_id: str, request: Request, payload: Optional[WhatsAppPreviewPayload] = None):
+    enforce_ip_rate_limit(request, bucket="whatsapp_preview")
+    body = payload or WhatsAppPreviewPayload()
+    sid = getattr(request.state, "demo_session_id", None) or get_current_request_session()
+    try:
+        return send_whatsapp_sandbox_preview(campaign_id, lang=body.lang, session_id=sid)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.post("/api/pilot-simulate")
+def api_pilot_simulate(payload: Optional[PilotSimulatePayload] = None):
+    body = payload or PilotSimulatePayload()
+    return simulate_multi_shop_pilot(
+        n_shops=body.n_shops,
+        waves_per_shop=body.waves_per_shop,
+        offer_rupees=body.offer_rupees,
+        avg_bill_inr=body.avg_bill_inr,
+        gross_margin_pct=body.gross_margin_pct,
+        paytm_fee_pct=body.paytm_fee_pct,
+        baseline_return_pct=body.baseline_return_pct,
+        true_lift_pp=body.true_lift_pp,
+        max_cap_per_wave_inr=body.max_cap_per_wave_inr,
+        seed=body.seed,
+    )
+
+
+@app.get("/api/report/closing-summary")
+def api_closing_report(format: str = "html"):
+    ov = get_dashboard_overview()
+    if (format or "").lower() == "json":
+        return {"ok": True, "generated_at": ov["audit_logs"][0]["ts"] if ov["audit_logs"] else "", "overview": ov}
+    html_doc = render_printable_closing_report_html(ov)
+    return HTMLResponse(content=html_doc)
+
+
+@app.get("/api/healthz")
+def api_deep_healthz():
+    return get_deep_healthz_status()
+
+
+@app.get("/api/audit/export")
+def api_export_audit_chain(format: str = "json", limit: int = 500):
+    if (format or "").lower() == "csv":
+        csv_body = export_audit_chain_csv(limit=limit)
+        return PlainTextResponse(
+            content=csv_body,
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="vyaparvoice_audit_chain.csv"'},
+        )
+    return compute_hash_chained_audit_log(limit=limit)
+
+
+@app.get("/api/campaigns/{campaign_id}/pass-qr.svg")
+def api_campaign_pass_qr_svg(campaign_id: str, pass_id: Optional[str] = None):
+    wallet = get_campaign_passes_wallet(campaign_id, lang="en")
+    pid = (pass_id or wallet["sample_pass_id"])[:24]
+    payload = f"VYAPAR|{campaign_id}|{pid}|RS{wallet['offer_rupees']}|MIN{wallet['min_bill']}"
+    svg = render_pass_qr_svg(payload, size_px=160)
+    return Response(content=svg, media_type="image/svg+xml")
+
+
+@app.get("/manifest.json")
+def serve_pwa_manifest():
+    return FileResponse("app/static/manifest.json", media_type="application/manifest+json")
 
 
 @app.post("/api/admin/reset-global")

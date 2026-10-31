@@ -1,0 +1,18 @@
+{
+  "name": "PaytmAI VyaparVoice Companion",
+  "short_name": "VyaparVoice",
+  "description": "Voice-first merchant retention, bounded cashback passes, and holdout attribution companion app.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#002970",
+  "theme_color": "#002970",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/static/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

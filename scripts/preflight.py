@@ -33,6 +33,8 @@ HYGIENE_GLOBS = [
     "AGENT_HANDOFF.md",
     "results/slide_numbers.md",
     "results/unit_economics.md",
+    "results/eval_benchmark.md",
+    "docs/PORTFOLIO_CASE_STUDY.md",
     "docs/SCRIPTS.md",
     "docs/QA_SHEET.md",
     "docs/COPY_REVIEW.md",
@@ -110,6 +112,7 @@ def main() -> int:
     run_cmd([sys.executable, "tests/test_finals_7tasks.py"], "Finals 7-task keyless localisation, voice, alerts, cap & plain-language suite")
     run_cmd([sys.executable, "tests/test_sarvam_primary_modes.py"], "Sarvam-primary 4-mode router, cache, DEMO_PIN & deterministic voice suite")
     run_cmd([sys.executable, "tests/qa_battery.py"], "Baseline 21/21 QA battery backwards-compatibility")
+    run_cmd([sys.executable, "scripts/eval_benchmark.py", "--assert-targets"], "60-case multilingual voice, guardrail & grounding evaluation benchmark")
     print("\nALL PREFLIGHT CHECKS PASSED.")
     return 0
 

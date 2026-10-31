@@ -102,7 +102,12 @@ class SarvamProvider:
 
     def estimate_tts_cost(self, text: str) -> float:
         chars = max(1, len(text))
-        return round((chars / 10000.0) * self.settings.sarvam_tts_cost_per_10k_inr, 6)
+        rate_per_10k = (
+            10.0
+            if self.settings.sarvam_tts_model.startswith("bulbul:v4")
+            else self.settings.sarvam_tts_cost_per_10k_inr
+        )
+        return round((chars / 10000.0) * rate_per_10k, 6)
 
     def estimate_stt_cost(self, duration_seconds: float) -> float:
         secs = max(0.5, float(duration_seconds))
@@ -211,14 +216,26 @@ class SarvamProvider:
             "api-subscription-key": self.settings.sarvam_api_key,
             "Content-Type": "application/json",
         }
-        payload = {
-            "text": text,
-            "target_language_code": lang_code,
-            "speaker": speaker,
-            "model": model,
-            "speech_sample_rate": 22050,
-            "output_audio_codec": "wav",
-        }
+        if model.startswith("bulbul:v4"):
+            payload = {
+                "text": text,
+                "language_code": lang_code,
+                "target_language_code": lang_code,
+                "model": model,
+                "speech_sample_rate": 22050,
+                "output_audio_codec": "wav",
+            }
+            if "_" in speaker:
+                payload["speaker"] = speaker
+        else:
+            payload = {
+                "text": text,
+                "target_language_code": lang_code,
+                "speaker": speaker,
+                "model": model,
+                "speech_sample_rate": 22050,
+                "output_audio_codec": "wav",
+            }
 
         try:
             record_sarvam_call(session_id)

@@ -305,7 +305,8 @@ def parse_amount_deterministic(utterance: str) -> Optional[int]:
 
 BUDGET_ACTION_VERBS = [
     "set", "change", "raise", "lower", "update", "make", "put", "keep", "increase", "decrease", "extend",
-    "रखो", "रखें", "करो", "करें", "बढ़ाओ", "बढ़ाएं", "बदलो", "तय", "rakho", "karo", "badhao",
+    "रखो", "रखें", "रख दो", "करो", "करें", "कर दो", "कर दीजिए", "कर दे", "बढ़ाओ", "बढ़ाएं", "बदलो", "तय",
+    "rakho", "karo", "kar do", "badhao",
     "ಇಡಿ", "ಇಡು", "ಮಾಡಿ", "ಹೊಂದಿಸಿ", "ಹೆಚ್ಚಿಸಿ", "ಬದಲಿಸಿ", "idi", "maadi", "hechisi",
 ]
 

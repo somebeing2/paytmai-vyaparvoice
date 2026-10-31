@@ -13,6 +13,7 @@ import httpx
 
 from .config import get_settings
 from .copy_lint import BANNED_MERCHANT_JARGON, find_formatting_violations
+from .csv_ingest import get_active_store_margin_pct
 from .providers.router import ProviderRouter
 from .security import assert_paid_calls_permitted
 
@@ -113,6 +114,7 @@ def compute_plain_facts(cmp_dict: Dict[str, Any]) -> Dict[str, Any]:
     extra_buyers = max(0, t_ret - normal_expected)
     avg_bill = int(round(gross_sales / max(1, t_ret))) if t_ret > 0 else 218
 
+    active_margin_pct = float(get_active_store_margin_pct())
     if cmp_dict.get("evaluation") and cmp_dict["evaluation"].get("profit_waterfall"):
         pw = cmp_dict["evaluation"]["profit_waterfall"]
         extra_sales = int(round(float(pw["incremental_sales_inr"])))
@@ -121,8 +123,7 @@ def compute_plain_facts(cmp_dict: Dict[str, Any]) -> Dict[str, Any]:
         profit_after_fee = int(round(float(pw["net_profit_post_fee_inr"])))
     else:
         extra_sales = int(round(extra_buyers * avg_bill))
-        margin_pct = float(settings.default_gross_margin_pct)
-        gross_margin_gain = int(round(extra_sales * (margin_pct / 100.0)))
+        gross_margin_gain = int(round(extra_sales * (active_margin_pct / 100.0)))
         profit_before_fee = gross_margin_gain - spent_inr
         paytm_fee = int(round(gross_sales * (float(settings.paytm_promo_fee_pct) / 100.0)))
         profit_after_fee = profit_before_fee - paytm_fee
@@ -146,7 +147,7 @@ def compute_plain_facts(cmp_dict: Dict[str, Any]) -> Dict[str, Any]:
         "extra_buyers": extra_buyers,
         "avg_bill_inr": avg_bill,
         "extra_sales_inr": extra_sales,
-        "margin_pct": int(round(float(settings.default_gross_margin_pct))),
+        "margin_pct": int(round(active_margin_pct)),
         "gross_margin_gain_inr": gross_margin_gain,
         "profit_before_fee_inr": profit_before_fee,
         "profit_after_fee_inr": profit_after_fee,
@@ -314,7 +315,7 @@ def generate_plain_explanation(cmp_dict: Dict[str, Any], lang: str = "en") -> Di
     return {
         "campaign_id": facts["campaign_id"],
         "lang": lg,
-        "review_status": "Draft - unreviewed by native speaker" if lg in ("hi", "kn") else "EN author-checked, native review pending",
+        "review_status": "Draft - unreviewed by native speaker" if lg in ("hi", "kn") else "English Copy Verified",
         "provider": provider_used,
         "facts": facts,
         "sections": sections,

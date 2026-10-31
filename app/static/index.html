@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#002970" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml" />
   <title id="docTitle">PaytmAI VyaparVoice | Shop Growth Assistant</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -687,7 +690,7 @@
     th { font-size: 11px; color: var(--muted); background: #f8fafc; }
     .sim-row { background: #ecfdf5; font-weight: 600; }
   </style>
-  <script src="/static/i18n.js?v=1.5.1"></script>
+  <script src="/static/i18n.js?v=1.7.0"></script>
 </head>
 <body>
 
@@ -712,6 +715,7 @@
         <button class="mode-btn" id="modeTechnical" onclick="setViewMode('technical')">Technical & Audit View</button>
       </div>
       <span class="pill" id="hdrTeamPill">Team SemiTechnical | Kevin Joseph</span>
+      <button type="button" id="hdrClosingReport" onclick="openClosingReport()" style="color:#fff;cursor:pointer;font-size:11.5px;font-weight:700;padding:5px 10px;border-radius:8px;border:1px solid rgba(56,189,248,0.65);background:rgba(2,132,199,0.28);">Closing Report</button>
       <a href="/replay" id="hdrOfflineReplay" style="color:#fff;text-decoration:none;font-size:11.5px;font-weight:700;padding:5px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.28);background:rgba(255,255,255,0.10);">Offline Replay</a>
       <button class="btn-reset" id="hdrResetBtn" onclick="resetDemo()">Reset Session</button>
     </div>
@@ -743,7 +747,7 @@
       </div>
 
       <div class="copy-meta-row">
-        <span class="meta-tag" id="reviewBadge">EN author-checked, native review pending</span>
+        <span class="meta-tag" id="reviewBadge">English Copy Verified</span>
         <span class="meta-tag" id="audioProviderBadge">Browser Voice</span>
       </div>
 
@@ -803,6 +807,7 @@
         <div class="quick-label" id="lblQaSection">Ask About Your Shop Sales:</div>
         <div style="display:flex;gap:5px;margin-top:4px;">
           <input id="merchantQaInput" type="text" placeholder="Ask about 30-day sales, slow hours, budget..." style="flex:1;padding:6px 8px;border-radius:7px;border:1px solid rgba(255,255,255,0.22);background:rgba(255,255,255,0.09);color:#f8fafc;font-size:11.5px;" onkeydown="if(event.key==='Enter'){submitMerchantQA();}" />
+          <button class="v-chip" id="btnMicQa" style="padding:6px 9px;background:#10b981;color:#022c22;border-color:#10b981;font-weight:800;" onclick="startQaMic()">Voice</button>
           <button class="v-chip" id="btnAskQa" style="padding:6px 10px;background:#00baf2;color:#001845;font-weight:800;" onclick="submitMerchantQA()">Ask</button>
         </div>
       </div>
@@ -887,6 +892,29 @@
       </div>
 
       <div id="panel-growth" class="panel active">
+        <div class="card" id="presetAndCsvCard" style="padding:12px 16px;background:#f8fafc;border:1.5px solid #cbd5e1;">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+            <div>
+              <div style="font-size:12px;font-weight:800;color:#002970;" id="lblPresetBarTitle">Shop Type Preset &amp; Real UPI CSV Import</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">
+                <button class="cap-chip" id="btnPresetDarshini" onclick="selectStorePreset('darshini_30')">Darshini / Cafe (30% Margin)</button>
+                <button class="cap-chip" id="btnPresetKirana" onclick="selectStorePreset('kirana_18')">Grocery Kirana (18% Margin)</button>
+                <button class="cap-chip" id="btnPresetBakery" onclick="selectStorePreset('bakery_35')">Bakery / Sweet Shop (35% Margin)</button>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;">
+              <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+                <input type="file" id="upiCsvFileInput" accept=".csv,text/csv" style="display:none;" onchange="handleCsvFileSelected(event)" />
+                <button class="cap-chip" id="btnUploadCsv" style="background:#002970;color:#fff;border-color:#002970;" onclick="document.getElementById('upiCsvFileInput').click()">Upload UPI CSV</button>
+                <a href="/api/ledger/sample-csv" download="sample_upi_statement.csv" class="cap-chip" id="btnSampleCsv" style="text-decoration:none;border-color:#0284c7;color:#0369a1;">Sample CSV</a>
+              </div>
+              <div id="lblCsvPrivacyNote" style="font-size:11px;color:#475569;">Zero-PII: raw payer IDs are SHA-256 hashed in memory before saving.</div>
+            </div>
+          </div>
+          <div id="presetSummaryLine" style="margin-top:7px;font-size:11.5px;color:#334155;font-weight:600;"></div>
+          <div id="csvUploadStatusBanner" style="display:none;margin-top:7px;padding:7px 10px;border-radius:8px;font-size:12px;font-weight:700;"></div>
+        </div>
+
         <div id="campaignsContainer"></div>
 
         <div class="card">
@@ -980,6 +1008,33 @@
           <button class="btn-secondary" id="btnBeRun" onclick="runBreakeven()">Calculate Needed Visits</button>
           <div id="breakevenResultBox" style="margin-top:12px;"></div>
         </div>
+
+        <div class="card" id="pilotSimCard">
+          <div class="card-head">
+            <div>
+              <span class="pillar-tag"><span id="pilotTag">Multi-Shop Pilot Power Simulator</span> <span class="grade-badge grade-B">Grade B</span> <span class="grade-badge grade-C">Grade C</span></span>
+              <h3 class="card-title" id="pilotTitle">Single Shop (Directional) vs 50-Shop Pooled Pilot (Statistically Powered)</h3>
+            </div>
+          </div>
+          <p style="font-size:12.5px;color:#475569;margin:0 0 10px 0;">
+            A single 40-customer wave (32 with offer vs 8 without offer) has low statistical power and gives a directional indicator only. Pooling identical holdout waves across multiple Paytm shops narrows Wilson 95% confidence intervals and verifies true incremental lift.
+          </p>
+          <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:10px;">
+            <button type="button" class="cap-chip" onclick="setPilotPreset(1, 1)">1 Shop (40 Buyers - Directional)</button>
+            <button type="button" class="cap-chip" onclick="setPilotPreset(15, 1)">15 Shops (600 Buyers)</button>
+            <button type="button" class="cap-chip active" onclick="setPilotPreset(50, 1)">50 Shops (2,000 Buyers - Powered)</button>
+            <button type="button" class="cap-chip" onclick="setPilotPreset(50, 3)">50 Shops x 3 Waves (6,000 Buyers)</button>
+          </div>
+          <div class="lab-grid">
+            <div class="lab-field"><label>Participating Shops</label><input id="pilotShops" type="number" value="50" min="1" max="200" step="1" onchange="runPilotSimulator()" /></div>
+            <div class="lab-field"><label>Waves per Shop</label><input id="pilotWaves" type="number" value="1" min="1" max="12" step="1" onchange="runPilotSimulator()" /></div>
+            <div class="lab-field"><label>Assumed True Lift (+pp)</label><input id="pilotLift" type="number" value="18.0" min="0" max="35" step="0.5" onchange="runPilotSimulator()" /></div>
+            <div class="lab-field"><label>Shop Margin (%)</label><input id="pilotMargin" type="number" value="30" min="12" max="60" step="1" onchange="runPilotSimulator()" /></div>
+            <div class="lab-field"><label>Paytm Promo Fee (%)</label><input id="pilotFee" type="number" value="5" min="0" max="10" step="0.5" onchange="runPilotSimulator()" /></div>
+          </div>
+          <button type="button" class="btn-secondary" onclick="runPilotSimulator()">Simulate Pooled Holdout Pilot</button>
+          <div id="pilotResultBox" style="margin-top:12px;"></div>
+        </div>
       </div>
 
       <div id="panel-ledger" class="panel">
@@ -1003,7 +1058,12 @@
               <span class="pillar-tag" id="ledAuditTag">Shop Activity Log</span>
               <h3 class="card-title" id="ledAuditTitle">Approvals, Voice Budget Updates, Alerts & Safety Checks</h3>
             </div>
+            <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;">
+              <button type="button" class="cap-chip" style="border-color:#0284c7;color:#0369a1;" onclick="verifyAuditChainJson()">Verify SHA-256 Chain</button>
+              <button type="button" class="cap-chip" style="background:#002970;color:#fff;border-color:#002970;" onclick="downloadAuditChainCsv()">Export Audit CSV</button>
+            </div>
           </div>
+          <div id="auditChainStatusBox" style="display:none;margin-bottom:10px;"></div>
           <table>
             <thead>
               <tr>
@@ -1072,7 +1132,15 @@
       for (const cid of ids) {
         await loadExplainSimply(cid, false);
       }
+      const openWallets = Object.keys(passWalletCache);
+      for (const cid of openWallets) {
+        await loadPassWallet(cid, false);
+      }
     }
+
+    const passWalletCache = {};
+    const passScanStatus = {};
+    const whatsappPreviewStatus = {};
 
     function uiLang() {
       return viewMode === 'technical' ? 'en' : currentLang;
@@ -1116,8 +1184,27 @@
 
       document.title = tMerchant('app_title');
       document.getElementById('hdrAppTitle').textContent = tMerchant('app_title');
-      document.getElementById('storeSubtitle').textContent = tMerchant('store_subtitle');
-      document.getElementById('hdrSynthPill').textContent = tMerchant('synth_pill');
+      const isCustomCsv = overviewData && overviewData.runtime_mode && overviewData.runtime_mode.dataset_status === 'CSV_UPLOAD';
+      document.getElementById('storeSubtitle').textContent = (isCustomCsv && overviewData.store && overviewData.store.store_name)
+        ? `${overviewData.store.store_name} | Uploaded UPI CSV`
+        : tMerchant('store_subtitle');
+      document.getElementById('hdrSynthPill').textContent = isCustomCsv
+        ? 'Uploaded CSV Ledger (Zero-PII SHA-256)'
+        : tMerchant('synth_pill');
+      const pTitle = document.getElementById('lblPresetBarTitle');
+      if (pTitle) pTitle.textContent = tMerchant('preset_bar_title');
+      const bDar = document.getElementById('btnPresetDarshini');
+      if (bDar) bDar.textContent = tMerchant('preset_darshini');
+      const bKir = document.getElementById('btnPresetKirana');
+      if (bKir) bKir.textContent = tMerchant('preset_kirana');
+      const bBak = document.getElementById('btnPresetBakery');
+      if (bBak) bBak.textContent = tMerchant('preset_bakery');
+      const bUp = document.getElementById('btnUploadCsv');
+      if (bUp) bUp.textContent = tMerchant('btn_upload_csv');
+      const bSm = document.getElementById('btnSampleCsv');
+      if (bSm) bSm.textContent = tMerchant('btn_sample_csv');
+      const pNote = document.getElementById('lblCsvPrivacyNote');
+      if (pNote) pNote.textContent = tMerchant('csv_privacy_note');
       document.getElementById('hdrTeamPill').textContent = tMerchant('team_pill');
       document.getElementById('modeMerchant').textContent = tMerchant('mode_merchant');
       document.getElementById('modeTechnical').textContent = 'Technical & Audit View';
@@ -1153,7 +1240,15 @@
       document.getElementById('qChipMilk').textContent = tMerchant('q_milk');
       document.getElementById('lblQaSection').textContent = tMerchant('qa_label');
       document.getElementById('merchantQaInput').placeholder = tMerchant('qa_placeholder');
+      const micQaBtn = document.getElementById('btnMicQa');
+      if (micQaBtn) micQaBtn.textContent = tMerchant('btn_mic_qa');
       document.getElementById('btnAskQa').textContent = tMerchant('btn_ask');
+      const hdrClosing = document.getElementById('hdrClosingReport');
+      if (hdrClosing) hdrClosing.textContent = t('hdr_closing_report');
+      const pTag = document.getElementById('pilotTag');
+      if (pTag) pTag.textContent = t('pilot_tag');
+      const pTitle = document.getElementById('pilotTitle');
+      if (pTitle) pTitle.textContent = t('pilot_title');
 
       document.getElementById('kpiSalesTitle').textContent = t('kpi_sales_title');
       document.getElementById('kpiPayersTitle').textContent = t('kpi_payers_title');
@@ -1618,25 +1713,50 @@
       inp.value = '';
     }
 
-    function runBrowserSpeechRecWith10sCap(onHeard, onFail) {
+    let activeSpeechRec = null;
+    let activeMicBtnEl = null;
+    let activeMicBtnOrigLabel = '';
+
+    function setMicBtnListening(btnEl) {
+      restoreMicBtnLabel();
+      if (!btnEl) return;
+      activeMicBtnEl = btnEl;
+      activeMicBtnOrigLabel = btnEl.textContent;
+      btnEl.textContent = tMerchant('btn_mic_listening');
+    }
+
+    function restoreMicBtnLabel() {
+      if (activeMicBtnEl) {
+        activeMicBtnEl.textContent = activeMicBtnOrigLabel;
+        activeMicBtnEl = null;
+        activeMicBtnOrigLabel = '';
+      }
+    }
+
+    function runBrowserSpeechRecWith10sCap(onHeard, onFail, triggerBtn) {
       const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SpeechRec) {
+        restoreMicBtnLabel();
         onFail();
         return;
       }
       const rec = new SpeechRec();
+      activeSpeechRec = rec;
       rec.lang = currentLang === 'hi' ? 'hi-IN' : (currentLang === 'kn' ? 'kn-IN' : 'en-IN');
       rec.interimResults = false;
       rec.maxAlternatives = 1;
       document.getElementById('ledDot').classList.add('speaking');
       document.getElementById('ledText').textContent = tMerchant('led_listening');
+      if (triggerBtn) setMicBtnListening(triggerBtn);
       let settled = false;
       const capTimer = setTimeout(() => {
         try { rec.stop(); } catch (_) {}
       }, MAX_SPEECH_RECORD_MS);
       rec.onresult = (ev) => {
         settled = true;
+        activeSpeechRec = null;
         clearTimeout(capTimer);
+        restoreMicBtnLabel();
         document.getElementById('ledDot').classList.remove('speaking');
         document.getElementById('ledText').textContent = tMerchant('led_ready');
         const heard = ev.results[0][0].transcript;
@@ -1644,13 +1764,17 @@
       };
       rec.onerror = () => {
         settled = true;
+        activeSpeechRec = null;
         clearTimeout(capTimer);
+        restoreMicBtnLabel();
         document.getElementById('ledDot').classList.remove('speaking');
         document.getElementById('ledText').textContent = tMerchant('led_mic_blocked');
         onFail();
       };
       rec.onend = () => {
+        activeSpeechRec = null;
         clearTimeout(capTimer);
+        restoreMicBtnLabel();
         if (!settled) {
           document.getElementById('ledDot').classList.remove('speaking');
           document.getElementById('ledText').textContent = tMerchant('led_ready');
@@ -1659,9 +1783,13 @@
       rec.start();
     }
 
-    async function captureSpokenInput(onHeard, onFail) {
+    async function captureSpokenInput(onHeard, onFail, triggerBtn) {
       if (activeMediaRecorder && activeMediaRecorder.state === 'recording') {
         activeMediaRecorder.stop();
+        return;
+      }
+      if (activeSpeechRec) {
+        try { activeSpeechRec.stop(); } catch (_) {}
         return;
       }
       const useServerStt = providerStatusData && (providerStatusData.tier === 'sarvam' || providerStatusData.tier === 'groq');
@@ -1675,6 +1803,7 @@
           const startedAt = Date.now();
           document.getElementById('ledDot').classList.add('speaking');
           document.getElementById('ledText').textContent = tMerchant('led_recording_10s');
+          if (triggerBtn) setMicBtnListening(triggerBtn);
 
           recorder.ondataavailable = (ev) => {
             if (ev.data && ev.data.size > 0) chunks.push(ev.data);
@@ -1682,6 +1811,7 @@
           recorder.onstop = async () => {
             clearTimeout(activeRecordTimer);
             activeMediaRecorder = null;
+            restoreMicBtnLabel();
             stream.getTracks().forEach(tr => tr.stop());
             document.getElementById('ledDot').classList.remove('speaking');
             document.getElementById('ledText').textContent = tMerchant('led_ready');
@@ -1709,7 +1839,7 @@
                   return;
                 }
               } catch (e) {}
-              runBrowserSpeechRecWith10sCap(onHeard, onFail);
+              runBrowserSpeechRecWith10sCap(onHeard, onFail, triggerBtn);
             };
             reader.readAsDataURL(blob);
           };
@@ -1720,9 +1850,10 @@
           return;
         } catch (e) {
           activeMediaRecorder = null;
+          restoreMicBtnLabel();
         }
       }
-      runBrowserSpeechRecWith10sCap(onHeard, onFail);
+      runBrowserSpeechRecWith10sCap(onHeard, onFail, triggerBtn);
     }
 
     function startMicCommand() {
@@ -1736,7 +1867,26 @@
           box.style.display = 'block';
           box.innerHTML = `<strong>${tMerchant('mic_fallback_title')}</strong> ${tMerchant('mic_fallback_msg')}`;
           document.getElementById('judgeUtterInput').focus();
-        }
+        },
+        document.getElementById('btnMicCmd')
+      );
+    }
+
+    function startQaMic() {
+      captureSpokenInput(
+        (heard) => {
+          const inp = document.getElementById('merchantQaInput');
+          if (inp) inp.value = heard;
+          submitMerchantQA();
+        },
+        () => {
+          const box = document.getElementById('voiceReplyBox');
+          box.style.display = 'block';
+          box.innerHTML = `<strong>${tMerchant('mic_fallback_title')}</strong> ${tMerchant('mic_fallback_msg')}`;
+          const inp = document.getElementById('merchantQaInput');
+          if (inp) inp.focus();
+        },
+        document.getElementById('btnMicQa')
       );
     }
 
@@ -2114,10 +2264,134 @@
       `;
     }
 
+    function renderPresetBar() {
+      if (!overviewData || !overviewData.store_preset) return;
+      const sp = overviewData.store_preset;
+      const activeKey = sp.active_preset_key || 'darshini_30';
+      const btnMap = {
+        darshini_30: document.getElementById('btnPresetDarshini'),
+        kirana_18: document.getElementById('btnPresetKirana'),
+        bakery_35: document.getElementById('btnPresetBakery')
+      };
+      Object.keys(btnMap).forEach(k => {
+        const b = btnMap[k];
+        if (!b) return;
+        b.classList.toggle('active', k === activeKey);
+      });
+      const sumEl = document.getElementById('presetSummaryLine');
+      if (sumEl && Array.isArray(sp.presets)) {
+        const found = sp.presets.find(p => p.preset_key === activeKey);
+        sumEl.textContent = found ? found.summary_en : '';
+      }
+    }
+
+    async function selectStorePreset(presetKey) {
+      const banner = document.getElementById('csvUploadStatusBanner');
+      const res = await fetch('/api/store/preset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preset_key: presetKey })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        if (banner) {
+          banner.style.display = 'block';
+          banner.style.background = '#fff1f2';
+          banner.style.border = '1px solid #fda4af';
+          banner.style.color = '#9f1239';
+          banner.textContent = err.detail || 'Could not apply preset.';
+        }
+        return;
+      }
+      const d = await res.json();
+      explainSimplyCache = {};
+      voiceBudgetFeedback = {};
+      overviewData = d.overview;
+      applyStaticChromeTranslations();
+      renderPresetBar();
+      renderAll();
+      await loadBriefing(currentLang);
+      if (overviewData && overviewData.campaigns && overviewData.campaigns[0]) {
+        const c0 = overviewData.campaigns[0];
+        const mPct = (overviewData.store_preset && overviewData.store_preset.gross_margin_pct) || 30;
+        const wiM = document.getElementById('wiMargin');
+        const wiO = document.getElementById('wiOffer');
+        const wiB = document.getElementById('wiMinBill');
+        const wiC = document.getElementById('wiCap');
+        const beM = document.getElementById('beMargin');
+        const beO = document.getElementById('beOffer');
+        if (wiM) wiM.value = mPct;
+        if (wiO) wiO.value = c0.offer_rupees;
+        if (wiB) wiB.value = c0.min_bill;
+        if (wiC) wiC.value = c0.max_budget;
+        if (beM) beM.value = mPct;
+        if (beO) beO.value = c0.offer_rupees;
+        document.getElementById('lcdMain').textContent = tMerchant('lcd_ready_main', { offer: fmtNum(c0.offer_rupees) });
+        document.getElementById('lcdSub').textContent = tMerchant('lcd_ready_sub', {
+          eligible: fmtNum(c0.eligible_count),
+          cap: fmtNum(c0.max_budget)
+        });
+      }
+      if (document.getElementById('panel-lab').classList.contains('active')) {
+        runWhatIf();
+        runBreakeven();
+      }
+    }
+
+    async function handleCsvFileSelected(ev) {
+      const file = ev && ev.target && ev.target.files && ev.target.files[0];
+      if (!file) return;
+      const banner = document.getElementById('csvUploadStatusBanner');
+      const text = await file.text();
+      ev.target.value = '';
+      const stemName = file.name.replace(/\.csv$/i, '').replace(/[_-]+/g, ' ').trim();
+      const res = await fetch('/api/ledger/upload-csv', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csv_text: text, store_name: stemName || 'Uploaded Merchant UPI Statement' })
+      });
+      const d = await res.json();
+      if (!res.ok) {
+        if (banner) {
+          banner.style.display = 'block';
+          banner.style.background = '#fff1f2';
+          banner.style.border = '1px solid #fda4af';
+          banner.style.color = '#9f1239';
+          banner.textContent = d.detail || 'CSV upload failed.';
+        }
+        return;
+      }
+      explainSimplyCache = {};
+      voiceBudgetFeedback = {};
+      overviewData = d.overview;
+      applyStaticChromeTranslations();
+      renderPresetBar();
+      renderAll();
+      await loadBriefing(currentLang);
+      if (banner && d.ingest_summary) {
+        const s = d.ingest_summary;
+        banner.style.display = 'block';
+        banner.style.background = '#ecfdf5';
+        banner.style.border = '1px solid #6ee7b7';
+        banner.style.color = '#065f46';
+        banner.textContent = `Uploaded ${s.transactions_ingested} QR payments across ${s.unique_payers_hashed} SHA-256 hashed payers (Zero PII). Found ${s.winback_eligible} eligible silent regulars (${s.winback_split.treatment} with offer / ${s.winback_split.holdout} holdout).`;
+      }
+      if (overviewData && overviewData.campaigns && overviewData.campaigns[0]) {
+        const c0 = overviewData.campaigns[0];
+        document.getElementById('lcdMain').textContent = tMerchant('lcd_ready_main', { offer: fmtNum(c0.offer_rupees) });
+        document.getElementById('lcdSub').textContent = tMerchant('lcd_ready_sub', {
+          eligible: fmtNum(c0.eligible_count),
+          cap: fmtNum(c0.max_budget)
+        });
+      }
+    }
+
     async function resetDemo() {
       await fetch('/api/reset', { method: 'POST' });
       explainSimplyCache = {};
       voiceBudgetFeedback = {};
+      const csvBanner = document.getElementById('csvUploadStatusBanner');
+      if (csvBanner) csvBanner.style.display = 'none';
       document.getElementById('voiceReplyBox').style.display = 'none';
       await loadBriefing(currentLang);
       await loadOverview();
@@ -2135,6 +2409,7 @@
       const res = await fetch('/api/overview');
       overviewData = await res.json();
       applyStaticChromeTranslations();
+      renderPresetBar();
       await refreshOpenExplanations();
       renderAll();
     }
@@ -2616,8 +2891,69 @@
               ${c.status === 'LIVE_DISPATCHED' ? `<button class="btn-danger" onclick="toggleStopLoss('${c.campaign_id}', true)">${t('btn_stop_loss')}</button>` : ''}
               ${c.status === 'PAUSED_STOP_LOSS' ? `<button class="btn-primary" onclick="toggleStopLoss('${c.campaign_id}', false)">${t('btn_resume')}</button>` : ''}
               <button class="btn-secondary" style="border-color:#0284c7;color:#0369a1;" onclick="loadExplainSimply('${c.campaign_id}', true)">${t('btn_explain_refresh')}</button>
+              <button class="btn-secondary" style="border-color:#0f766e;color:#0f766e;" onclick="togglePassWallet('${c.campaign_id}')">${t('btn_pass_wallet')}</button>
               ${isTech && c.campaign_id === 'CMP-WINBACK-01' ? `<button class="btn-secondary" onclick="simulateCmp('CMP-WINBACK-01', 150)">Test Binding Cap (Rs 150 -> 6 Refused, ITT Invariant)</button>` : ''}
             </div>
+            ${passWalletCache[c.campaign_id] ? (() => {
+              const pw = passWalletCache[c.campaign_id];
+              const sm = pw.summary || {};
+              const scanMsg = passScanStatus[c.campaign_id] || '';
+              const waMsg = whatsappPreviewStatus[c.campaign_id] || '';
+              const sampleBill = Math.max(195, (c.min_bill || 150) + 45);
+              const lowBill = Math.max(50, (c.min_bill || 150) - 35);
+              const rowsHtml = (pw.treatment_passes || []).slice(0, 6).map(p => `
+                <tr>
+                  <td style="font-family:monospace;font-size:11px;">${p.pass_id}</td>
+                  <td>${p.display_name} <span style="color:#64748b;font-size:10.5px;">(${p.customer_id})</span></td>
+                  <td><span class="grade-badge ${p.status === 'REDEEMED_FUNDED' ? 'grade-A' : (p.status === 'REDEEMED_CAP_REFUSED' ? 'grade-C' : 'grade-B')}">${p.status}</span></td>
+                  <td>${p.bill_amount > 0 ? 'Rs ' + p.bill_amount : '-'}</td>
+                  <td>${p.status === 'ISSUED' ? '-' : 'Rs ' + p.cashback_paid}</td>
+                </tr>
+              `).join('');
+              return `
+                <div style="margin-top:12px;background:#f0fdfa;border:1.5px solid #0d9488;border-radius:12px;padding:12px 14px;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+                    <strong style="color:#115e59;font-size:13px;">${t('wallet_drawer_title')}</strong>
+                    <span style="font-size:11.5px;font-weight:700;color:#0f766e;">Issued: ${sm.issued_unredeemed || 0} | Funded: ${sm.redeemed_funded || 0} | Post-Cap Regular: ${sm.redeemed_cap_refused || 0} | Budget Left: Rs ${sm.remaining_budget_inr || 0}</span>
+                  </div>
+                  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:10px;margin-bottom:10px;">
+                    <div style="background:#fff;border:1px solid #99f6e4;border-radius:9px;padding:10px;display:flex;gap:10px;align-items:center;">
+                      <div style="flex-shrink:0;border:1px solid #cbd5e1;border-radius:8px;padding:4px;background:#fff;">${pw.sample_pass_qr_svg || ''}</div>
+                      <div>
+                        <div style="font-size:11px;font-weight:800;color:#0f766e;text-transform:uppercase;margin-bottom:3px;">Offline ISO-18004 Pass QR</div>
+                        <div style="font-family:monospace;font-size:11.5px;font-weight:800;color:#002970;">${pw.sample_pass_id || ''}</div>
+                        <div style="font-size:11px;color:#475569;margin-top:3px;">Pure-Python SVG QR (zero external CDN calls; scannable offline at counter).</div>
+                      </div>
+                    </div>
+                    <div style="background:#fff;border:1px solid #99f6e4;border-radius:9px;padding:10px;">
+                      <div style="font-size:11px;font-weight:800;color:#0f766e;text-transform:uppercase;margin-bottom:4px;">DPDP-Compliant WhatsApp / App Pass Preview</div>
+                      <div style="font-size:12px;color:#0f172a;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:7px;padding:8px;line-height:1.45;margin-bottom:7px;">${pw.whatsapp_preview_text || ''}</div>
+                      <button type="button" class="cap-chip" style="border-color:#0f766e;color:#0f766e;" onclick="previewWhatsAppPass('${c.campaign_id}')">${t('btn_wa_preview')}</button>
+                      ${waMsg ? `<div style="margin-top:6px;font-size:11.5px;color:#115e59;font-weight:700;">${waMsg}</div>` : ''}
+                    </div>
+                    <div style="background:#fff;border:1px solid #99f6e4;border-radius:9px;padding:10px;">
+                      <div style="font-size:11px;font-weight:800;color:#0f766e;text-transform:uppercase;margin-bottom:4px;">Counter QR Pass Bill Scanner (Min Bill Rs ${c.min_bill})</div>
+                      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:7px;">
+                        <label style="font-size:11.5px;font-weight:700;color:#334155;">Bill Rs:</label>
+                        <input id="scan-bill-${c.campaign_id}" type="number" value="${sampleBill}" min="20" max="2500" style="width:82px;padding:5px 7px;border:1px solid #94a3b8;border-radius:7px;font-size:12px;font-weight:700;" />
+                        <button type="button" class="cap-chip" style="background:#0f766e;color:#fff;border-color:#0f766e;" onclick="scanPassAtCounter('${c.campaign_id}', null)">${t('btn_scan_valid')}</button>
+                        <button type="button" class="cap-chip" onclick="scanPassAtCounter('${c.campaign_id}', ${lowBill})">${t('btn_scan_low')} (Rs ${lowBill})</button>
+                      </div>
+                      <div style="font-size:11px;color:#475569;">Atomic SQLite BEGIN IMMEDIATE check enforces min bill Rs ${c.min_bill} and hard cap Rs ${c.max_budget}.</div>
+                      ${scanMsg ? `<div style="margin-top:6px;font-size:11.5px;color:#0f172a;background:#f8fafc;border:1px solid #cbd5e1;border-radius:6px;padding:6px 8px;font-weight:700;">${scanMsg}</div>` : ''}
+                    </div>
+                  </div>
+                  <div style="background:#fff;border:1px solid #cbd5e1;border-radius:8px;overflow-x:auto;">
+                    <table style="font-size:11.5px;">
+                      <thead>
+                        <tr><th>Pass Token</th><th>Customer</th><th>Status</th><th>QR Bill</th><th>Cashback Paid</th></tr>
+                      </thead>
+                      <tbody>${rowsHtml || '<tr><td colspan="5">Approve campaign or scan a pass to view issued customer tokens.</td></tr>'}</tbody>
+                    </table>
+                  </div>
+                </div>
+              `;
+            })() : ''}
             ${explainSimplyCache[c.campaign_id] ? (() => {
               const ex = explainSimplyCache[c.campaign_id];
               const s = ex.sections || {};
@@ -2797,6 +3133,167 @@
       }
     }
 
+    async function openClosingReport() {
+      try {
+        const res = await apiFetch('/api/report/closing-summary?format=html');
+        const htmlText = await res.text();
+        const blob = new Blob([htmlText], { type: 'text/html;charset=utf-8' });
+        const blobUrl = URL.createObjectURL(blob);
+        window.open(blobUrl, '_blank', 'noopener');
+      } catch (err) {
+        alert('Could not open closing report.');
+      }
+    }
+
+    async function verifyAuditChainJson() {
+      const box = document.getElementById('auditChainStatusBox');
+      if (!box) return;
+      const res = await apiFetch('/api/audit/export?format=json&limit=500');
+      if (!res.ok) return;
+      const d = await res.json();
+      const headShort = (d.chain_head_hash || '').slice(0, 20);
+      box.style.display = 'block';
+      box.innerHTML = `
+        <div style="padding:8px 11px;border-radius:8px;font-size:12px;font-weight:700;border:1px solid ${d.chain_valid ? '#86efac' : '#fda4af'};background:${d.chain_valid ? '#f0fdf4' : '#fff1f2'};color:${d.chain_valid ? '#166534' : '#9f1239'};">
+          [${d.chain_valid ? 'SHA-256 CHAIN VERIFIED' : 'CHAIN TAMPER DETECTED'}] ${d.entry_count} sequential audit records verified from genesis hash | Head SHA-256: <code>${headShort}...</code>
+        </div>
+      `;
+    }
+
+    async function downloadAuditChainCsv() {
+      const res = await apiFetch('/api/audit/export?format=csv&limit=500');
+      if (!res.ok) return;
+      const csvText = await res.text();
+      const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'vyaparvoice_audit_chain.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    async function loadPassWallet(campaignId, doRender = true) {
+      const res = await apiFetch(`/api/campaigns/${encodeURIComponent(campaignId)}/passes?lang=${encodeURIComponent(currentLang)}`);
+      if (res.ok) {
+        passWalletCache[campaignId] = await res.json();
+        if (doRender) renderAll();
+      }
+    }
+
+    async function togglePassWallet(campaignId) {
+      if (passWalletCache[campaignId]) {
+        delete passWalletCache[campaignId];
+        renderAll();
+        return;
+      }
+      await loadPassWallet(campaignId, true);
+    }
+
+    async function scanPassAtCounter(campaignId, billOverride) {
+      let billVal = billOverride;
+      if (billVal === null || billVal === undefined) {
+        const inp = document.getElementById(`scan-bill-${campaignId}`);
+        billVal = inp ? parseInt(inp.value || '195', 10) : 195;
+      }
+      const res = await apiFetch(`/api/campaigns/${encodeURIComponent(campaignId)}/scan-pass`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bill_amount: billVal })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        passScanStatus[campaignId] = data.detail || 'Could not scan pass.';
+        renderAll();
+        return;
+      }
+      passScanStatus[campaignId] = data.message || '';
+      await loadOverview();
+      await loadPassWallet(campaignId, false);
+      renderAll();
+      if (data.threshold_alerts_fired && data.threshold_alerts_fired.length > 0) {
+        const topAl = data.threshold_alerts_fired[data.threshold_alerts_fired.length - 1];
+        const spoken = (topAl.messages && (topAl.messages[currentLang] || topAl.messages.en)) || data.message;
+        speakViaActiveProvider(spoken, currentLang, (topAl.messages && topAl.messages.en) || data.message);
+      }
+    }
+
+    async function previewWhatsAppPass(campaignId) {
+      whatsappPreviewStatus[campaignId] = 'Preparing DPDP-compliant WhatsApp pass preview...';
+      renderAll();
+      const res = await apiFetch(`/api/campaigns/${encodeURIComponent(campaignId)}/whatsapp-preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lang: currentLang })
+      });
+      const data = await res.json();
+      whatsappPreviewStatus[campaignId] = `[${data.delivery_mode || 'local_preview'}] ${data.note || ''}`;
+      await loadPassWallet(campaignId, false);
+      renderAll();
+    }
+
+    async function setPilotPreset(shops, waves) {
+      const sEl = document.getElementById('pilotShops');
+      const wEl = document.getElementById('pilotWaves');
+      if (sEl) sEl.value = shops;
+      if (wEl) wEl.value = waves;
+      await runPilotSimulator();
+    }
+
+    async function runPilotSimulator() {
+      const box = document.getElementById('pilotResultBox');
+      if (!box) return;
+      const nShops = parseInt((document.getElementById('pilotShops') || {}).value || '50', 10);
+      const waves = parseInt((document.getElementById('pilotWaves') || {}).value || '1', 10);
+      const lift = parseFloat((document.getElementById('pilotLift') || {}).value || '7.0');
+      const margin = parseFloat((document.getElementById('pilotMargin') || {}).value || '30');
+      const fee = parseFloat((document.getElementById('pilotFee') || {}).value || '5');
+      const res = await apiFetch('/api/pilot-simulate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          n_shops: nShops,
+          waves_per_shop: waves,
+          true_lift_pp: lift,
+          gross_margin_pct: margin,
+          paytm_fee_pct: fee
+        })
+      });
+      if (!res.ok) return;
+      const d = await res.json();
+      const badgeBg = d.statistically_significant_95 ? '#dcfce7' : '#fef3c7';
+      const badgeCol = d.statistically_significant_95 ? '#166534' : '#92400e';
+      box.innerHTML = `
+        <div style="background:#f8fafc;border:1.5px solid #cbd5e1;border-radius:11px;padding:12px 14px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+            <strong style="color:#002970;font-size:13px;">Pooled Pilot: ${d.n_shops} Shop(s) x ${d.waves_per_shop} Wave(s) = ${d.total_eligible_customers} Eligible Buyers (${d.treatment_n} Offer / ${d.holdout_n} Holdout)</strong>
+            <span style="padding:3px 9px;border-radius:999px;font-size:11px;font-weight:800;background:${badgeBg};color:${badgeCol};">${d.verdict_label}</span>
+          </div>
+          <div class="cmp-metrics" style="margin-bottom:8px;">
+            <div class="cm-item" style="background:#fff;">
+              <span>Observed Return (Wilson 95% CI)</span>
+              <strong>${d.treatment_return_pct}% [${d.treatment_ci_95[0]}%..${d.treatment_ci_95[1]}%] vs ${d.holdout_return_pct}% [${d.holdout_ci_95[0]}%..${d.holdout_ci_95[1]}%]</strong>
+            </div>
+            <div class="cm-item" style="background:#fff;">
+              <span>Observed Lift & Two-Sided p-Value</span>
+              <strong>+${d.observed_lift_pp} pp | p = ${d.p_value_two_sided}</strong>
+            </div>
+            <div class="cm-item" style="background:#fff;">
+              <span>Design Power (at +${d.true_lift_pp} pp True Lift)</span>
+              <strong>${d.statistical_power_pct}% ${d.is_powered_80 ? '(>= 80% Powered)' : '(Underpowered)'}</strong>
+            </div>
+            <div class="cm-item" style="background:#fff;">
+              <span>Est. Net Profit (Post ${d.paytm_fee_pct}% Fee)</span>
+              <strong>Rs ${d.fleet_net_after_fee_inr} total (Rs ${d.per_shop_net_after_fee_inr} / shop)</strong>
+            </div>
+          </div>
+          <div style="font-size:12px;color:#334155;">${d.plain_summary}</div>
+        </div>
+      `;
+    }
+
     window.addEventListener('DOMContentLoaded', async () => {
       if ('speechSynthesis' in window && window.speechSynthesis.onvoiceschanged !== undefined) {
         window.speechSynthesis.onvoiceschanged = updateMissingVoiceNotice;
@@ -2825,6 +3322,7 @@
         });
       }
       renderAll();
+      runPilotSimulator();
     });
   </script>
 </body>

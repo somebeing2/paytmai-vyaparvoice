@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <rect width="192" height="192" rx="36" fill="#002970"/>
+  <rect x="18" y="18" width="156" height="156" rx="26" fill="none" stroke="#00baf2" stroke-width="5"/>
+  <text x="96" y="88" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="800" fill="#ffffff">Paytm</text>
+  <text x="96" y="132" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="32" font-weight="800" fill="#00baf2">VyaparAI</text>
+</svg>

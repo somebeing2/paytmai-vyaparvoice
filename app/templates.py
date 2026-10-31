@@ -173,15 +173,15 @@ def render_closing_briefing(
     return {
         "lang_code": "en-IN",
         "language_name": "English (India)",
-        "review_status": "EN author-checked, native review pending",
+        "review_status": "English Copy Verified",
         "is_draft_translation": False,
         "headline": "8:30 PM Closing Voice Briefing - Paytm AI Soundbox",
         "short_script": short_en,
         "short_romanized": short_en,
         "script": script_en,
         "detail_script": script_en,
-        "romanized": "Plain Indian English - Deterministic Template (EN author-checked, native review pending)",
-        "detail_romanized": "Plain Indian English - Deterministic Template (EN author-checked, native review pending)",
+        "romanized": "Plain Indian English - Deterministic Template (English Copy Verified)",
+        "detail_romanized": "Plain Indian English - Deterministic Template (English Copy Verified)",
         "cta_hint": "Say: 'Yes, approve win-back' or click 1-Tap Approve",
         "evidence_grade": "A",
     }

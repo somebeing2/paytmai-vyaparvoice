@@ -15,6 +15,7 @@ from .budget_parser import (
 )
 from .config import get_settings
 from .copy_lint import assert_valid_merchant_copy
+from .csv_ingest import get_active_preset_info, get_active_store_margin_pct, get_ledger_meta_map
 from .database import get_conn, get_db_lock
 from .explain_simply import generate_plain_explanation
 from datetime import date, timedelta
@@ -94,7 +95,7 @@ def _compute_cap_reached_summary(cmp_dict: Dict[str, Any]) -> Optional[Dict[str,
 
     avg_bill = gross_sales / max(1, t_ret) if t_ret > 0 else 217.5
     inc_sales = round(extra_custs * avg_bill, 2)
-    margin_pct = float(get_settings().default_gross_margin_pct)
+    margin_pct = float(get_active_store_margin_pct())
     inc_gross_profit = round(inc_sales * (margin_pct / 100.0), 2)
     net_profit_pre_fee = round(inc_gross_profit - spent, 2)
 
@@ -503,7 +504,7 @@ def _enrich_campaign_dict(cur, cmp_row: Dict[str, Any]) -> Dict[str, Any]:
             max_budget=item["max_budget"],
             gross_returning_sales_inr=float(item["gross_treatment_sales"]),
             funded_redeemed_sales_inr=funded_sales,
-            gross_margin_pct=settings.default_gross_margin_pct,
+            gross_margin_pct=get_active_store_margin_pct(cur),
             paytm_fee_pct=settings.paytm_promo_fee_pct,
             alpha=settings.alpha_two_sided,
             target_power=settings.target_power,
@@ -521,6 +522,7 @@ def _enrich_campaign_dict(cur, cmp_row: Dict[str, Any]) -> Dict[str, Any]:
             if int(item["treatment_returned"]) > 0
             else 217.50
         )
+        active_margin = get_active_store_margin_pct(cur)
         bayes = compute_bayesian_profit_posterior(
             treatment_count=item["treatment_count"],
             itt_treatment_returned=item["treatment_returned"],
@@ -529,7 +531,7 @@ def _enrich_campaign_dict(cur, cmp_row: Dict[str, Any]) -> Dict[str, Any]:
             offer_rupees=item["offer_rupees"],
             max_budget=item["max_budget"],
             avg_bill_inr=avg_ret_bill,
-            gross_margin_pct=settings.default_gross_margin_pct,
+            gross_margin_pct=active_margin,
             paytm_fee_pct=settings.paytm_promo_fee_pct,
         )
         ev_meter = compute_evidence_meter(
@@ -549,7 +551,7 @@ def _enrich_campaign_dict(cur, cmp_row: Dict[str, Any]) -> Dict[str, Any]:
             prob_profit_pre_fee_pct=bayes["prob_profit_pre_fee_pct"],
             prob_profit_post_fee_pct=bayes["prob_profit_post_fee_pct"],
             is_significant=evaluation["itt"]["is_statistically_significant"],
-            gross_margin_pct=settings.default_gross_margin_pct,
+            gross_margin_pct=active_margin,
         )
         item["scorecard_detail"] = {
             "verdict": verdict,
@@ -568,7 +570,7 @@ def _enrich_campaign_dict(cur, cmp_row: Dict[str, Any]) -> Dict[str, Any]:
             cap_reached=bool(item["cap_reached"]),
             budget_spent=item["budget_spent"],
             max_budget=item["max_budget"],
-            gross_margin_pct=settings.default_gross_margin_pct,
+            gross_margin_pct=active_margin,
             net_profit_pre_fee=pw["net_profit_pre_fee_inr"],
             net_profit_post_fee=pw["net_profit_post_fee_inr"],
             waves_needed_80_20=pow_80["waves_needed"],
@@ -780,22 +782,29 @@ def get_dashboard_overview() -> Dict[str, Any]:
         profit_state = "BREAK_EVEN"
     else:
         profit_state = "ACTIVE"
+    preset_info = get_active_preset_info(cur)
+    active_margin = float(preset_info["gross_margin_pct"])
+    store_out = dict(STORE_INFO)
+    if preset_info.get("custom_store_name"):
+        store_out["store_name"] = preset_info["custom_store_name"]
+        store_out["dataset_disclosure"] = "UPLOADED_ANONYMIZED_CSV"
     conn.close()
 
     return {
-        "store": STORE_INFO,
+        "store": store_out,
+        "store_preset": preset_info,
         "evidence_grades": EVIDENCE_GRADES,
         "runtime_mode": {
             "public_deploy": settings.public_deploy,
             "sarvam_live_allowed": settings.sarvam_live_allowed,
-            "dataset_status": "SYNTHETIC_60D_LEDGER",
+            "dataset_status": preset_info["dataset_source"],
         },
         "cap_editor_bounds": {
             "min_cap_inr": settings.min_cap_inr,
             "max_cap_inr": settings.max_cap_inr,
             "presets_inr": list(settings.cap_presets_inr),
         },
-        "breakeven_defaults": compute_breakeven_lift(),
+        "breakeven_defaults": compute_breakeven_lift(gross_margin_pct=active_margin),
         "kpis": {
             "gmv_30d": kpi_30d["gmv_30d"],
             "txn_count_30d": kpi_30d["txn_count"],
@@ -812,7 +821,7 @@ def get_dashboard_overview() -> Dict[str, Any]:
             "estimated_net_profit_post_fee_inr": total_net_profit_post_fee,
             "profit_state": profit_state,
             "profit_formula": (
-                "Est. Profit Before Fee = (Extra Sales vs Non-Offer Holdout x 30% Assumed Shop Margin) - Cashback Spent; "
+                f"Est. Profit Before Fee = (Extra Sales vs Non-Offer Holdout x {active_margin:.0f}% Assumed Shop Margin) - Cashback Spent; "
                 "Est. Profit After Fee = Profit Before Fee - (5% Paytm Promo Fee on All Redeemed Bills). "
                 "Grade C marks modelled financial estimates using assumed margin and fee."
             ),
@@ -1618,18 +1627,19 @@ def _draw_independent_outcomes(
     mode: str = "canonical",
     seed: int = 20261025,
 ) -> Tuple[List[Tuple[str, int]], int, str, int]:
+    meta = get_ledger_meta_map()
     if campaign_id == "CMP-WINBACK-01":
-        avg_spend = 210
+        avg_spend = int(float(meta.get("store_avg_return_bill_inr", "210")))
         cat = "Fresh Provisions & Dairy"
         sim_hr = 19
-        canonical_t_ret = 12
-        canonical_h_ret = 1
+        canonical_t_ret = 12 if len(treat_cids) == 32 else max(1, int(round(len(treat_cids) * 0.375))) if treat_cids else 0
+        canonical_h_ret = 1 if len(holdout_cids) == 8 else int(round(len(holdout_cids) * 0.125))
     else:
         avg_spend = 155
         cat = "Evening Snacks & Tea"
         sim_hr = 16
-        canonical_t_ret = 11
-        canonical_h_ret = 1
+        canonical_t_ret = 11 if len(treat_cids) == 27 else max(1, int(round(len(treat_cids) * 0.407))) if treat_cids else 0
+        canonical_h_ret = 1 if len(holdout_cids) == 7 else int(round(len(holdout_cids) * 0.143))
 
     if mode == "canonical":
         returning_treat = []
@@ -2608,7 +2618,7 @@ def build_sanitized_store_facts(ov_ctx: Optional[Dict[str, Any]] = None) -> Dict
         "total_customers": int(k["total_customers"]),
         "repeat_customers": day_stats["repeat_customers"],
         "repeat_rate_pct": float(k["repeat_rate_pct"]),
-        "assumed_margin_pct": int(round(float(settings.default_gross_margin_pct))),
+        "assumed_margin_pct": int(round(float(get_active_store_margin_pct()))),
         "assumed_fee_pct": int(round(float(settings.paytm_promo_fee_pct))),
         "profit_state": str(k.get("profit_state", "NO_OFFER_RUN_YET")),
         "incremental_sales": int(k.get("verified_incremental_inr", 0)),

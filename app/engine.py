@@ -56,6 +56,152 @@ def now_label() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _ensure_cap_pause_table(cur) -> None:
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS campaign_cap_pause_logs (
+            campaign_id TEXT PRIMARY KEY,
+            post_cap_count INTEGER NOT NULL,
+            suggestion_code TEXT NOT NULL,
+            logged_ts TEXT NOT NULL
+        )
+        """
+    )
+
+
+def _compute_cap_reached_summary(cmp_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    max_cap = int(cmp_dict["max_budget"])
+    offer = max(1, int(cmp_dict["offer_rupees"]))
+    spent = int(cmp_dict["budget_spent"])
+    max_funded_cap = (max_cap // offer) * offer
+    is_cap_hit = bool(cmp_dict.get("cap_reached")) or (max_funded_cap > 0 and spent >= max_funded_cap)
+    if not is_cap_hit or spent <= 0:
+        return None
+
+    t_ret = int(cmp_dict["treatment_returned"])
+    t_cnt = max(1, int(cmp_dict["treatment_count"]))
+    h_ret = int(cmp_dict["holdout_returned"])
+    h_cnt = max(1, int(cmp_dict["holdout_count"]))
+    post_cap_custs = int(cmp_dict["refused_redemptions"])
+    gross_sales = int(cmp_dict["gross_treatment_sales"])
+
+    organic_expected = (h_ret / h_cnt) * t_cnt
+    extra_custs = round(max(0.0, t_ret - organic_expected), 1)
+    extra_custs_disp = int(extra_custs) if abs(extra_custs - round(extra_custs)) < 1e-6 else extra_custs
+
+    avg_bill = gross_sales / max(1, t_ret) if t_ret > 0 else 217.5
+    inc_sales = round(extra_custs * avg_bill, 2)
+    margin_pct = float(get_settings().default_gross_margin_pct)
+    inc_gross_profit = round(inc_sales * (margin_pct / 100.0), 2)
+    net_profit_pre_fee = round(inc_gross_profit - spent, 2)
+
+    return_per_rupee = round(net_profit_pre_fee / max(1, spent), 2)
+    sales_per_rupee = round(inc_sales / max(1, spent), 2)
+    suggest_extend = bool(return_per_rupee > 0.0)
+    suggestion_code = "SUGGEST_EXTEND" if suggest_extend else "KEEP_PAUSED"
+
+    sug_en = (
+        "Return per rupee is positive, so you may extend your offer budget if stock allows."
+        if suggest_extend
+        else "Return per rupee is not positive yet, so keep the offer paused."
+    )
+    sug_hi = (
+        "प्रति रुपये मुनाफा सकारात्मक है, इसलिए स्टॉक होने पर आप बजट बढ़ा सकते हैं।"
+        if suggest_extend
+        else "प्रति रुपये मुनाफा अभी सकारात्मक नहीं है, इसलिए ऑफर रुका रहने दें।"
+    )
+    sug_kn = (
+        "ಪ್ರತಿ ರೂಪಾಯಿಗೆ ಲಾಭ ಧನಾತ್ಮಕವಾಗಿದೆ, ಸ್ಟಾಕ್ ಇದ್ದರೆ ನೀವು ಬಜೆಟ್ ವಿಸ್ತರಿಸಬಹುದು."
+        if suggest_extend
+        else "ಪ್ರತಿ ರೂಪಾಯಿಗೆ ಲಾಭ ಇನ್ನೂ ಧನಾತ್ಮಕವಾಗಿಲ್ಲ, ಆಫರ್ ನಿಲ್ಲಿಸಿದ ಸ್ಥಿತಿಯಲ್ಲೇ ಇರಲಿ."
+    )
+
+    sign_str = "+" if return_per_rupee > 0 else ""
+    msg_en = assert_valid_merchant_copy(
+        f"Cap reached and cashback paused automatically at Rs {spent} of Rs {max_cap}. "
+        f"Extra customers attracted: {extra_custs_disp}, post-cap regular-price customers: {post_cap_custs}, "
+        f"net return per rupee spent: {sign_str}Rs {return_per_rupee:.2f}. {sug_en}",
+        check_sentence_length=False,
+    )
+    msg_hi = assert_valid_merchant_copy(
+        f"बजट सीमा पूरी हुई और कैशबैक {max_cap} रुपये में से {spent} रुपये पर अपने आप रुक गया। "
+        f"अतिरिक्त ग्राहक आए: {extra_custs_disp}, सीमा के बाद सामान्य बिल ग्राहक: {post_cap_custs}, "
+        f"प्रति रुपये शुद्ध लाभ: {sign_str}{return_per_rupee:.2f} रुपये। {sug_hi}",
+        check_sentence_length=False,
+    )
+    msg_kn = assert_valid_merchant_copy(
+        f"ಬಜೆಟ್ ಮಿತಿ ತಲುಪಿದೆ ಮತ್ತು ಕ್ಯಾಶ್‌ಬ್ಯಾಕ್ {max_cap} ರೂಪಾಯಿಯಲ್ಲಿ {spent} ರೂಪಾಯಿಗೆ ಸ್ವಯಂಚಾಲಿತವಾಗಿ ನಿಂತಿದೆ. "
+        f"ಹೆಚ್ಚುವರಿ ಗ್ರಾಹಕರು: {extra_custs_disp}, ಮಿತಿ ನಂತರ ಸಾಮಾನ್ಯ ಬಿಲ್ ಗ್ರಾಹಕರು: {post_cap_custs}, "
+        f"ಪ್ರತಿ ರೂಪಾಯಿ ಖರ್ಚಿಗೆ ನಿವ್ವಳ ಲಾಭ: {sign_str}{return_per_rupee:.2f} ರೂಪಾಯಿ. {sug_kn}",
+        check_sentence_length=False,
+    )
+
+    return {
+        "auto_paused": True,
+        "extra_customers_attracted": extra_custs_disp,
+        "total_spent_inr": spent,
+        "max_budget_inr": max_cap,
+        "post_cap_regular_price_customers": post_cap_custs,
+        "return_per_rupee_inr": return_per_rupee,
+        "sales_per_rupee_inr": sales_per_rupee,
+        "suggest_extend": suggest_extend,
+        "suggestion_code": suggestion_code,
+        "messages": {"en": msg_en, "hi": msg_hi, "kn": msg_kn},
+    }
+
+
+def _record_cap_reached_audit_if_needed(cur, campaign_id: str) -> Optional[Dict[str, Any]]:
+    _ensure_cap_pause_table(cur)
+    cmp_row = cur.execute("SELECT * FROM campaigns WHERE campaign_id = ?", (campaign_id,)).fetchone()
+    if not cmp_row:
+        return None
+    summary = _compute_cap_reached_summary(dict(cmp_row))
+    if summary is None:
+        return None
+
+    prev = cur.execute(
+        "SELECT * FROM campaign_cap_pause_logs WHERE campaign_id = ?", (campaign_id,)
+    ).fetchone()
+    post_cnt = int(summary["post_cap_regular_price_customers"])
+    sug_code = str(summary["suggestion_code"])
+    ts = now_label()
+
+    if prev is None:
+        cur.execute(
+            "INSERT INTO campaign_cap_pause_logs (campaign_id, post_cap_count, suggestion_code, logged_ts) VALUES (?, ?, ?, ?)",
+            (campaign_id, post_cnt, sug_code, ts),
+        )
+        cur.execute(
+            "INSERT INTO audit_logs (ts, actor, event_type, detail) VALUES (?, ?, ?, ?)",
+            (
+                ts,
+                "VyaparVoice Cap Auto-Pause",
+                "CAP_REACHED_AUTO_PAUSED",
+                f"Auto-paused cashback on {campaign_id} at Rs {summary['total_spent_inr']} / Rs {summary['max_budget_inr']} cap; "
+                f"post_cap_regular_customers={post_cnt} billed at regular price (0 turned away); "
+                f"extra_customers={summary['extra_customers_attracted']}; return_per_rupee=Rs {summary['return_per_rupee_inr']:.2f}; "
+                f"suggestion={sug_code}.",
+            ),
+        )
+    elif int(prev["post_cap_count"]) != post_cnt or str(prev["suggestion_code"]) != sug_code:
+        cur.execute(
+            "UPDATE campaign_cap_pause_logs SET post_cap_count = ?, suggestion_code = ?, logged_ts = ? WHERE campaign_id = ?",
+            (post_cnt, sug_code, ts, campaign_id),
+        )
+        cur.execute(
+            "INSERT INTO audit_logs (ts, actor, event_type, detail) VALUES (?, ?, ?, ?)",
+            (
+                ts,
+                "VyaparVoice Cap Auto-Pause",
+                "POST_CAP_REGULAR_BILLING",
+                f"{campaign_id} post-cap regular-price update: post_cap_regular_customers={post_cnt} billed at regular price "
+                f"(spend locked at Rs {summary['total_spent_inr']} <= Rs {summary['max_budget_inr']}); "
+                f"return_per_rupee=Rs {summary['return_per_rupee_inr']:.2f}; suggestion={sug_code}.",
+            ),
+        )
+    return summary
+
+
 def _ensure_threshold_table(cur) -> None:
     cur.execute(
         """
@@ -298,6 +444,7 @@ def _enrich_campaign_dict(cur, cmp_row: Dict[str, Any]) -> Dict[str, Any]:
     item["threshold_alerts"] = _get_campaign_threshold_alerts(
         cur, item["campaign_id"], int(item["funded_redemptions"])
     )
+    item["cap_reached_summary"] = _compute_cap_reached_summary(item)
 
     passes_count = cur.execute(
         "SELECT COUNT(*) AS c FROM campaign_passes WHERE campaign_id = ? AND arm = 'TREATMENT'",
@@ -1014,11 +1161,20 @@ def update_campaign_cap(
             return enriched
 
         spent = int(cmp_row["budget_spent"])
-        new_cap_reached = 1 if (spent >= int(new_cap_inr) and int(new_cap_inr) > 0) or int(cmp_row["refused_redemptions"]) > 0 else 0
-        cur.execute(
-            "UPDATE campaigns SET max_budget = ?, cap_reached = ? WHERE campaign_id = ?",
-            (int(new_cap_inr), new_cap_reached, campaign_id),
+        max_funded_new = (int(new_cap_inr) // max(1, offer)) * offer
+        new_cap_reached = 1 if (spent >= max_funded_new and max_funded_new > 0) else 0
+        resumed_status = (
+            "LIVE_DISPATCHED"
+            if (cmp_row["status"] == "CAP_PAUSED" and new_cap_reached == 0)
+            else cmp_row["status"]
         )
+        cur.execute(
+            "UPDATE campaigns SET max_budget = ?, cap_reached = ?, status = ? WHERE campaign_id = ?",
+            (int(new_cap_inr), new_cap_reached, resumed_status, campaign_id),
+        )
+        if new_cap_reached == 0:
+            _ensure_cap_pause_table(cur)
+            cur.execute("DELETE FROM campaign_cap_pause_logs WHERE campaign_id = ?", (campaign_id,))
         cur.execute("DELETE FROM pending_confirmations WHERE campaign_id = ?", (campaign_id,))
         cur.execute(
             "INSERT INTO audit_logs (ts, actor, event_type, detail) VALUES (?, ?, ?, ?)",
@@ -1545,6 +1701,7 @@ def step_live_campaign_scans(
             ),
         )
         newly_fired = _check_and_fire_thresholds(cur, campaign_id)
+        _record_cap_reached_audit_if_needed(cur, campaign_id)
         conn.commit()
         raw_final = dict(cur.execute("SELECT * FROM campaigns WHERE campaign_id = ?", (campaign_id,)).fetchone())
         enriched = _enrich_campaign_dict(cur, raw_final)
@@ -1662,6 +1819,7 @@ def simulate_campaign_48h(
         )
 
         newly_fired = _check_and_fire_thresholds(cur, campaign_id)
+        _record_cap_reached_audit_if_needed(cur, campaign_id)
         conn.commit()
         raw_final = dict(cur.execute("SELECT * FROM campaigns WHERE campaign_id = ?", (campaign_id,)).fetchone())
         enriched = _enrich_campaign_dict(cur, raw_final)
@@ -1674,11 +1832,11 @@ def simulate_campaign_spend(
     campaign_id: str,
     target_pct: Optional[int] = None,
     add_rupees: Optional[int] = None,
+    post_cap_regular_customers: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
-    Task 4 Technical View 'Simulate spend' helper: advances campaign spend to a target percentage
-    (e.g. 50%, 80%, 100%) or by +add_rupees without ever exceeding max_budget, firing newly crossed
-    threshold alerts once per campaign and logging to audit_logs.
+    Task 4 & 5 Technical View 'Simulate spend' helper: advances campaign spend to a target percentage
+    (e.g. 50%, 80%, 100%), +add_rupees, or post-cap regular-price customers without ever exceeding max_budget.
     """
     lock = get_db_lock()
     with lock:
@@ -1703,20 +1861,29 @@ def simulate_campaign_spend(
         cur_spent = int(cmp_row["budget_spent"])
         max_funded_cap = (max_cap // offer) * offer
 
-        if target_pct is not None:
+        if post_cap_regular_customers is not None and int(post_cap_regular_customers) > 0:
+            # Ensure cap is at 100% first, then bill post-cap customers at regular price (Rs 0 cashback)
+            extra_units = max(0, (max_funded_cap - cur_spent) // offer) + int(post_cap_regular_customers)
+        elif target_pct is not None:
             pct = max(1, min(100, int(target_pct)))
             if pct >= 100:
                 desired_spent = max_funded_cap
             else:
                 req_units = math.ceil(((pct / 100.0) * max_cap) / offer)
                 desired_spent = min(max_funded_cap, req_units * offer)
+            extra_units = max(0, (desired_spent - cur_spent) // offer)
         elif add_rupees is not None:
-            units = max(1, int(add_rupees) // offer)
-            desired_spent = min(max_funded_cap, cur_spent + units * offer)
+            if cur_spent >= max_funded_cap:
+                # Already at 100% cap -> subsequent customer billed at regular price (0 cashback)
+                extra_units = 1
+            else:
+                units = max(1, int(add_rupees) // offer)
+                desired_spent = min(max_funded_cap, cur_spent + units * offer)
+                extra_units = max(0, (desired_spent - cur_spent) // offer)
         else:
             desired_spent = min(max_funded_cap, cur_spent + offer * 2)
+            extra_units = max(0, (desired_spent - cur_spent) // offer)
 
-        extra_units = max(0, (desired_spent - cur_spent) // offer)
         available_rows = cur.execute(
             "SELECT customer_id FROM campaign_passes WHERE campaign_id = ? AND arm = 'TREATMENT' AND status = 'ISSUED' ORDER BY customer_id ASC",
             (campaign_id,),
@@ -1733,19 +1900,24 @@ def simulate_campaign_spend(
         conn = get_conn()
         cur = conn.cursor()
         if rem_synthetic_units > 0:
-            add_spend = rem_synthetic_units * offer
+            cmp_mid = cur.execute("SELECT * FROM campaigns WHERE campaign_id = ?", (campaign_id,)).fetchone()
+            room_units = max(0, (max_funded_cap - int(cmp_mid["budget_spent"])) // offer)
+            funded_syn = min(rem_synthetic_units, room_units)
+            refused_syn = rem_synthetic_units - funded_syn
+            add_spend = funded_syn * offer
             add_sales = rem_synthetic_units * 218
             cur.execute(
                 """
                 UPDATE campaigns
                 SET budget_spent = MIN(max_budget, budget_spent + ?),
                     funded_redemptions = funded_redemptions + ?,
+                    refused_redemptions = refused_redemptions + ?,
                     treatment_returned = treatment_returned + ?,
                     gross_treatment_sales = gross_treatment_sales + ?,
-                    cap_reached = CASE WHEN budget_spent + ? >= max_budget THEN 1 ELSE cap_reached END
+                    cap_reached = CASE WHEN budget_spent + ? >= ? OR ? > 0 THEN 1 ELSE cap_reached END
                 WHERE campaign_id = ?
                 """,
-                (add_spend, rem_synthetic_units, rem_synthetic_units, add_sales, add_spend, campaign_id),
+                (add_spend, funded_syn, refused_syn, rem_synthetic_units, add_sales, add_spend, max_funded_cap, refused_syn, campaign_id),
             )
 
         cmp_after = cur.execute("SELECT * FROM campaigns WHERE campaign_id = ?", (campaign_id,)).fetchone()
@@ -1775,10 +1947,12 @@ def simulate_campaign_spend(
                 now_label(),
                 "Technical Simulate Spend",
                 "TECH_SIMULATE_SPEND",
-                f"Simulated spend on {campaign_id}: Rs {cur_spent} -> Rs {budget_spent} of Rs {max_cap} ({round(budget_spent/max(1,max_cap)*100,1)}%).",
+                f"Simulated spend on {campaign_id}: Rs {cur_spent} -> Rs {budget_spent} of Rs {max_cap} "
+                f"(post_cap_regular_customers={cmp_after['refused_redemptions']}).",
             ),
         )
         newly_fired = _check_and_fire_thresholds(cur, campaign_id)
+        _record_cap_reached_audit_if_needed(cur, campaign_id)
         conn.commit()
         raw_final = dict(cur.execute("SELECT * FROM campaigns WHERE campaign_id = ?", (campaign_id,)).fetchone())
         enriched = _enrich_campaign_dict(cur, raw_final)

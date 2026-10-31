@@ -118,6 +118,7 @@ class StepLivePayload(BaseModel):
 class SimulateSpendPayload(BaseModel):
     target_pct: Optional[int] = None
     add_rupees: Optional[int] = None
+    post_cap_regular_customers: Optional[int] = None
 
 
 class StopLossPayload(BaseModel):
@@ -362,6 +363,7 @@ def api_simulate_campaign_spend(campaign_id: str, payload: Optional[SimulateSpen
             campaign_id,
             target_pct=body.target_pct,
             add_rupees=body.add_rupees,
+            post_cap_regular_customers=body.post_cap_regular_customers,
         )
         return {
             "ok": True,

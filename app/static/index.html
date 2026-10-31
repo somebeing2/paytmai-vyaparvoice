@@ -846,8 +846,9 @@
           <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;">
             <button class="cap-chip" style="border-color:#0284c7;color:#0369a1;" onclick="simulateSpendTech('CMP-WINBACK-01', 50, null)">Simulate 50% Spend</button>
             <button class="cap-chip" style="border-color:#d97706;color:#92400e;" onclick="simulateSpendTech('CMP-WINBACK-01', 80, null)">Simulate 80% Spend</button>
-            <button class="cap-chip" style="border-color:#be123c;color:#9f1239;" onclick="simulateSpendTech('CMP-WINBACK-01', 100, null)">Simulate 100% Cap</button>
-            <button class="cap-chip" onclick="simulateSpendTech('CMP-WINBACK-01', null, 50)">+Rs 50 Spend</button>
+            <button class="cap-chip" style="border-color:#be123c;color:#9f1239;" onclick="simulateSpendTech('CMP-WINBACK-01', 100, null, null)">Simulate 100% Cap</button>
+            <button class="cap-chip" style="border-color:#4f46e5;color:#3730a3;" onclick="simulateSpendTech('CMP-WINBACK-01', null, null, 1)">+1 Post-Cap Regular Bill</button>
+            <button class="cap-chip" onclick="simulateSpendTech('CMP-WINBACK-01', null, 50, null)">+Rs 50 Spend</button>
           </div>
         </div>
       </div>
@@ -1587,24 +1588,30 @@
       await loadOverview();
     }
 
-    function handleNewlyFiredAlerts(alerts) {
+    function handleNewlyFiredAlerts(alerts, capSummary) {
       if (!alerts || !alerts.length) return;
       const latest = alerts[alerts.length - 1];
-      const spokenMsg = (latest.messages && latest.messages[currentLang]) || (latest.messages && latest.messages.en) || '';
+      let spokenMsg = (latest.messages && latest.messages[currentLang]) || (latest.messages && latest.messages.en) || '';
+      let fallbackEn = (latest.messages && latest.messages.en) || spokenMsg;
+      if (latest.threshold_pct >= 100 && capSummary && capSummary.messages) {
+        spokenMsg = capSummary.messages[currentLang] || capSummary.messages.en || spokenMsg;
+        fallbackEn = capSummary.messages.en || fallbackEn;
+      }
       if (spokenMsg) {
         const vBox = document.getElementById('voiceReplyBox');
         if (vBox) {
           vBox.style.display = 'block';
           vBox.innerHTML = `<strong>${tMerchant('sb_reply')} [${latest.threshold_pct}%]</strong> ${spokenMsg}`;
         }
-        speakViaActiveProvider(spokenMsg, currentLang, latest.messages ? latest.messages.en : spokenMsg);
+        speakViaActiveProvider(spokenMsg, currentLang, fallbackEn);
       }
     }
 
-    async function simulateSpendTech(campaignId, targetPct, addRupees) {
+    async function simulateSpendTech(campaignId, targetPct, addRupees, postCapRegular) {
       const payload = {};
       if (targetPct !== null && targetPct !== undefined) payload.target_pct = Number(targetPct);
       if (addRupees !== null && addRupees !== undefined) payload.add_rupees = Number(addRupees);
+      if (postCapRegular !== null && postCapRegular !== undefined) payload.post_cap_regular_customers = Number(postCapRegular);
       const res = await fetch(`/api/campaigns/${campaignId}/simulate-spend`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1621,7 +1628,10 @@
         scans: fmtNum(data.campaign.treatment_returned),
         cap: fmtNum(data.campaign.max_budget)
       });
-      handleNewlyFiredAlerts(data.newly_fired_alerts || (data.campaign && data.campaign.newly_fired_alerts));
+      handleNewlyFiredAlerts(
+        data.newly_fired_alerts || (data.campaign && data.campaign.newly_fired_alerts),
+        data.campaign && data.campaign.cap_reached_summary
+      );
       await loadBriefing(currentLang);
       await loadOverview();
     }
@@ -1668,7 +1678,7 @@
         scans: fmtNum(data.campaign.treatment_returned),
         cap: fmtNum(data.campaign.max_budget)
       });
-      handleNewlyFiredAlerts(data.campaign && data.campaign.newly_fired_alerts);
+      handleNewlyFiredAlerts(data.campaign && data.campaign.newly_fired_alerts, data.campaign && data.campaign.cap_reached_summary);
       await loadBriefing(currentLang);
       await loadOverview();
     }
@@ -1721,7 +1731,7 @@
           cap: fmtNum(data.campaign.max_budget)
         });
       }
-      handleNewlyFiredAlerts(data.campaign && data.campaign.newly_fired_alerts);
+      handleNewlyFiredAlerts(data.campaign && data.campaign.newly_fired_alerts, data.campaign && data.campaign.cap_reached_summary);
       await loadBriefing(currentLang);
       await loadOverview();
     }
@@ -2213,6 +2223,38 @@
           `;
         }).join('');
 
+        const cs = c.cap_reached_summary;
+        let capSummaryHtml = '';
+        if (cs) {
+          const retStr = fmtInr(cs.return_per_rupee_inr, true, 2);
+          const grossStr = fmtInr(cs.sales_per_rupee_inr, false, 2);
+          const sugLine = cs.suggest_extend ? t('cap_summary_suggest_pos') : t('cap_summary_suggest_neg');
+          const csSpoken = ((cs.messages && cs.messages[currentLang]) || (cs.messages && cs.messages.en) || '').replace(/'/g, "\\'");
+          const csEn = ((cs.messages && cs.messages.en) || '').replace(/'/g, "\\'");
+          capSummaryHtml = `
+            <div style="background:#f0fdf4;border:1.5px solid #16a34a;border-radius:11px;padding:11px 14px;margin-bottom:10px;color:#14532d;font-size:12.5px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+                <strong>${t('cap_summary_title')}</strong>
+                <div style="display:flex;gap:6px;align-items:center;">
+                  <button class="cap-chip" style="padding:3px 9px;font-size:11px;" onclick="speakViaActiveProvider('${csSpoken}', currentLang, '${csEn}')">${tMerchant('btn_speak')}</button>
+                  ${cs.suggest_extend ? `<button class="btn-primary" style="padding:4px 10px;font-size:11.5px;" onclick="triggerQuickExtend('${c.campaign_id}', ${c.max_budget})">${t('btn_alert_extend')}</button>` : ''}
+                </div>
+              </div>
+              <div style="margin-top:5px;">
+                ${t('cap_summary_body', {
+                  extraCusts: fmtNum(cs.extra_customers_attracted, 1),
+                  spent: fmtInr(cs.total_spent_inr),
+                  cap: fmtInr(cs.max_budget_inr),
+                  retPerRupee: retStr,
+                  grossPerRupee: grossStr,
+                  postCapCusts: fmtNum(cs.post_cap_regular_price_customers)
+                })}
+              </div>
+              <div style="margin-top:4px;font-weight:800;color:${cs.suggest_extend ? '#15803d' : '#92400e'};">${sugLine}</div>
+            </div>
+          `;
+        }
+
         let liveMonitorHtml = '';
         if (li.is_interim || c.status === 'SIMULATED_48H') {
           const monLabel = isTech
@@ -2308,6 +2350,7 @@
 
             ${liveSyncHtml}
             ${thresholdAlertsHtml}
+            ${capSummaryHtml}
             ${capEditorHtml}
             ${liveMonitorHtml}
             ${warnHtml}

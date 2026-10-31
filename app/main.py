@@ -18,6 +18,7 @@ from .engine import (
     evaluate_guardrail_attack,
     evaluate_what_if,
     execute_ops_action,
+    explain_campaign_simply,
     get_dashboard_overview,
     get_voice_briefing,
     handle_voice_command,
@@ -399,6 +400,14 @@ def api_simulate_campaign(campaign_id: str, payload: Optional[SimulatePayload] =
     except ValueError as exc:
         code = 404 if "not found" in str(exc).lower() else 400
         raise HTTPException(status_code=code, detail=str(exc))
+
+
+@app.get("/api/campaigns/{campaign_id}/explain-simply")
+def api_get_explain_simply(campaign_id: str, lang: str = "en"):
+    try:
+        return explain_campaign_simply(campaign_id, lang=lang)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 
 @app.post("/api/ops/{action_id}/execute")

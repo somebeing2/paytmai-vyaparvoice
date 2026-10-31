@@ -16,6 +16,7 @@ from .budget_parser import (
 from .config import get_settings
 from .copy_lint import assert_valid_merchant_copy
 from .database import get_conn, get_db_lock
+from .explain_simply import generate_plain_explanation
 from .providers.groq_qa import get_groq_qa
 from .providers.sarvam import SarvamProvider
 from .stats import (
@@ -1959,6 +1960,18 @@ def simulate_campaign_spend(
         enriched["newly_fired_alerts"] = newly_fired
         conn.close()
         return enriched
+
+
+def explain_campaign_simply(campaign_id: str, lang: str = "en") -> Dict[str, Any]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cmp_row = cur.execute("SELECT * FROM campaigns WHERE campaign_id = ?", (campaign_id,)).fetchone()
+    if not cmp_row:
+        conn.close()
+        raise ValueError("Campaign not found")
+    enriched = _enrich_campaign_dict(cur, dict(cmp_row))
+    conn.close()
+    return generate_plain_explanation(enriched, lang=lang)
 
 
 def execute_ops_action(action_id: str) -> Dict[str, Any]:

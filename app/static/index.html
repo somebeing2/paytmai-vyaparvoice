@@ -1027,6 +1027,26 @@
     let lastSpokenText = '';
     let lastSpokenLang = 'kn-IN';
     let openWhyIds = {};
+    let explainSimplyCache = {};
+
+    async function loadExplainSimply(campaignId, speakNow = false) {
+      const targetLang = viewMode === 'technical' ? 'en' : currentLang;
+      const res = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/explain-simply?lang=${encodeURIComponent(targetLang)}`);
+      if (!res.ok) return;
+      const d = await res.json();
+      explainSimplyCache[campaignId] = d;
+      renderAll();
+      if (speakNow && d.combined_script) {
+        speakViaActiveProvider(d.combined_script, targetLang, d.combined_script);
+      }
+    }
+
+    async function refreshOpenExplanations() {
+      const ids = Object.keys(explainSimplyCache);
+      for (const cid of ids) {
+        await loadExplainSimply(cid, false);
+      }
+    }
 
     function uiLang() {
       return viewMode === 'technical' ? 'en' : currentLang;
@@ -1312,6 +1332,7 @@
       syncLanguageToggleButtons();
       applyStaticChromeTranslations();
       await loadBriefing(lang);
+      await refreshOpenExplanations();
       renderAll();
       if (document.getElementById('panel-lab').classList.contains('active')) {
         runGuardrailAttack(false);
@@ -1870,6 +1891,8 @@
 
     async function resetDemo() {
       await fetch('/api/reset', { method: 'POST' });
+      explainSimplyCache = {};
+      voiceBudgetFeedback = {};
       document.getElementById('voiceReplyBox').style.display = 'none';
       await loadBriefing(currentLang);
       await loadOverview();
@@ -1887,6 +1910,7 @@
       const res = await fetch('/api/overview');
       overviewData = await res.json();
       applyStaticChromeTranslations();
+      await refreshOpenExplanations();
       renderAll();
     }
 
@@ -2363,8 +2387,39 @@
               ${c.status !== 'SIMULATED_48H' && c.status !== 'PAUSED_STOP_LOSS' ? `<button class="btn-sim" onclick="simulateCmp('${c.campaign_id}')">${t('btn_complete_48h')}</button>` : ''}
               ${c.status === 'LIVE_DISPATCHED' ? `<button class="btn-danger" onclick="toggleStopLoss('${c.campaign_id}', true)">${t('btn_stop_loss')}</button>` : ''}
               ${c.status === 'PAUSED_STOP_LOSS' ? `<button class="btn-primary" onclick="toggleStopLoss('${c.campaign_id}', false)">${t('btn_resume')}</button>` : ''}
+              <button class="btn-secondary" style="border-color:#0284c7;color:#0369a1;" onclick="loadExplainSimply('${c.campaign_id}', true)">${t('btn_explain_refresh')}</button>
               ${isTech && c.campaign_id === 'CMP-WINBACK-01' ? `<button class="btn-secondary" onclick="simulateCmp('CMP-WINBACK-01', 150)">Test Binding Cap (Rs 150 -> 6 Refused, ITT Invariant)</button>` : ''}
             </div>
+            ${explainSimplyCache[c.campaign_id] ? (() => {
+              const ex = explainSimplyCache[c.campaign_id];
+              const s = ex.sections || {};
+              const spokenEsc = (ex.combined_script || '').replace(/'/g, "\\'");
+              return `
+                <div style="margin-top:12px;background:#f8fafc;border:1.5px solid #38bdf8;border-radius:12px;padding:12px 14px;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+                    <strong style="color:#002970;font-size:13px;">${t('explain_section_title')}</strong>
+                    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                      ${(uiLang() === 'hi' || uiLang() === 'kn') ? `<span class="review-badge draft" style="font-size:10px;padding:2px 7px;">Draft - unreviewed by native speaker</span>` : ''}
+                      <button class="cap-chip" style="border-color:#0284c7;color:#0369a1;" onclick="speakViaActiveProvider('${spokenEsc}', uiLang(), '${spokenEsc}')">${t('btn_explain_speak')}</button>
+                    </div>
+                  </div>
+                  <div class="cmp-metrics" style="margin-bottom:0;">
+                    <div class="cm-item" style="background:#fff;">
+                      <span>${t('explain_cap_title')}</span>
+                      <div style="font-size:12.5px;color:#0f172a;margin-top:4px;line-height:1.45;">${s.cap_performance || ''}</div>
+                    </div>
+                    <div class="cm-item" style="background:#fff;">
+                      <span>${t('explain_comp_title')}</span>
+                      <div style="font-size:12.5px;color:#0f172a;margin-top:4px;line-height:1.45;">${s.customer_comparison || ''}</div>
+                    </div>
+                    <div class="cm-item" style="background:#fff;">
+                      <span>${t('explain_roi_title')}</span>
+                      <div style="font-size:12.5px;color:#0f172a;margin-top:4px;line-height:1.45;">${s.spend_vs_return || ''}</div>
+                    </div>
+                  </div>
+                </div>
+              `;
+            })() : ''}
             ${scorecardHtml}
           </div>
         `;

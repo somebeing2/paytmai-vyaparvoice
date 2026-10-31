@@ -26,6 +26,7 @@ SECRET_PATTERNS = [
 ]
 
 HYGIENE_GLOBS = [
+    "README.md",
     "AUDIT.md",
     "PLAN.md",
     "AGENT_HANDOFF.md",
@@ -105,6 +106,7 @@ def main() -> int:
     run_cmd([sys.executable, "tests/test_e2e_stage1.py"], "Stage 1 FastAPI E2E & visitor isolation tests")
     run_cmd([sys.executable, "tests/test_stage2.py"], "Stage 2 guardrails, cap editor, scorecard & unit-econ tests")
     run_cmd([sys.executable, "tests/test_groq_guardrails.py"], "Task 15 keyless Groq grounded Q&A, zero-PII & fallback tests")
+    run_cmd([sys.executable, "tests/test_finals_7tasks.py"], "Finals 7-task keyless localisation, voice, alerts, cap & plain-language suite")
     run_cmd([sys.executable, "tests/qa_battery.py"], "Baseline 21/21 QA battery backwards-compatibility")
     print("\nALL PREFLIGHT CHECKS PASSED.")
     return 0

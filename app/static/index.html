@@ -2056,8 +2056,12 @@
 
       if (isTech) {
         document.getElementById('kpiLiftLabel').innerHTML = `Sim. Incremental Sales <span class="grade-badge grade-B">Grade B</span>`;
-        document.getElementById('kpiLift').textContent = fmtInr(k.verified_incremental_inr, true);
-        document.getElementById('kpiLiftSub').textContent = `Est. Net Profit Pre-Fee: ${fmtInr(k.estimated_net_profit_pre_fee_inr, true)}`;
+        document.getElementById('kpiLift').textContent = evaluatedCmps.length === 0 ? fmtInr(0, false) : fmtInr(k.verified_incremental_inr, true);
+        document.getElementById('kpiLiftSub').textContent = evaluatedCmps.length === 0
+          ? 'Est. Profit Pre-Fee (Grade C): Rs 0 (No offer run yet)'
+          : (Math.abs(k.estimated_net_profit_pre_fee_inr) < 0.01
+              ? 'Est. Profit Pre-Fee (Grade C): Rs 0 (Break-even)'
+              : `Est. Net Profit Pre-Fee (Grade C): ${fmtInr(k.estimated_net_profit_pre_fee_inr, true)}`);
       } else {
         document.getElementById('kpiLiftLabel').innerHTML = `${t('kpi_profit_title')} <span class="grade-badge grade-C">${t('grade_c')}</span>`;
         if (evaluatedCmps.length === 0) {

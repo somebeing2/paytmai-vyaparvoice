@@ -453,14 +453,18 @@ def _enrich_campaign_dict(cur, cmp_row: Dict[str, Any]) -> Dict[str, Any]:
     ).fetchone()["c"]
     item["passes_issued_count"] = int(passes_count)
 
-    is_interim = item["status"] in ("LIVE_DISPATCHED", "PAUSED_STOP_LOSS")
+    is_interim = item["status"] in ("LIVE_DISPATCHED", "PAUSED_STOP_LOSS", "CAP_PAUSED")
     item["live_interim"] = {
         "is_interim": is_interim,
-        "is_paused_stop_loss": item["status"] == "PAUSED_STOP_LOSS",
+        "is_paused_stop_loss": item["status"] in ("PAUSED_STOP_LOSS", "CAP_PAUSED"),
         "interim_banner": (
             "PAUSED BY MERCHANT STOP-LOSS - PASS REDEMPTIONS HALTED"
             if item["status"] == "PAUSED_STOP_LOSS"
-            else "INTERIM DIRECTIONAL READOUT - DO NOT STOP EARLY FOR WINNER"
+            else (
+                "AUTO-PAUSED AT 100% CAP - SUBSEQUENT CUSTOMERS BILLED AT REGULAR PRICE"
+                if item["status"] == "CAP_PAUSED"
+                else "INTERIM DIRECTIONAL READOUT - DO NOT STOP EARLY FOR WINNER"
+            )
         ),
         "budget_spent_inr": int(item["budget_spent"]),
         "max_budget_inr": int(item["max_budget"]),
@@ -738,15 +742,22 @@ def get_dashboard_overview() -> Dict[str, Any]:
 
     audit_logs = [dict(r) for r in cur.execute("SELECT * FROM audit_logs ORDER BY id DESC LIMIT 16").fetchall()]
 
+    evaluated_cmps = [c for c in campaigns if c.get("evaluation")]
     total_incremental = sum(c["incremental_sales"] for c in campaigns)
     total_net_profit_pre_fee = round(
-        sum(
-            c["evaluation"]["profit_waterfall"]["net_profit_pre_fee_inr"]
-            for c in campaigns
-            if c.get("evaluation")
-        ),
+        sum(c["evaluation"]["profit_waterfall"]["net_profit_pre_fee_inr"] for c in evaluated_cmps),
         2,
     )
+    total_net_profit_post_fee = round(
+        sum(c["evaluation"]["profit_waterfall"]["net_profit_post_fee_inr"] for c in evaluated_cmps),
+        2,
+    )
+    if not evaluated_cmps:
+        profit_state = "NO_OFFER_RUN_YET"
+    elif abs(total_net_profit_pre_fee) < 0.01:
+        profit_state = "BREAK_EVEN"
+    else:
+        profit_state = "ACTIVE"
     conn.close()
 
     return {
@@ -772,6 +783,9 @@ def get_dashboard_overview() -> Dict[str, Any]:
             "repeat_rate_pct": round((repeat_custs / max(1, total_customers)) * 100, 1),
             "verified_incremental_inr": total_incremental,
             "estimated_net_profit_pre_fee_inr": total_net_profit_pre_fee,
+            "estimated_net_profit_post_fee_inr": total_net_profit_post_fee,
+            "profit_state": profit_state,
+            "profit_formula": "Est. Profit Pre-Fee = (Extra Sales vs Non-Offer Group x 30% Assumed Shop Margin) - Cashback Spent; Post-Fee subtracts 5% Paytm Fee on all redeemed bills (Grade C financial assumption).",
         },
         "hourly_series": hourly_series,
         "segments": segments,

@@ -161,6 +161,7 @@ def serve_offline_replay():
     return FileResponse(os.path.join(STATIC_DIR, "demo_replay.html"))
 
 
+@app.api_route("/health", methods=["GET", "HEAD"])
 @app.api_route("/api/health", methods=["GET", "HEAD"])
 def health(request: Request):
     settings = get_settings()
@@ -285,6 +286,36 @@ def api_what_if(payload: WhatIfPayload):
 
 @app.get("/api/why/{item_id}")
 def api_why(item_id: str):
+    if item_id == "KPI-PROFIT":
+        ov = get_dashboard_overview()
+        k = ov["kpis"]
+        state = k["profit_state"]
+        pre = k["estimated_net_profit_pre_fee_inr"]
+        post = k["estimated_net_profit_post_fee_inr"]
+        if state == "NO_OFFER_RUN_YET":
+            plain = assert_valid_merchant_copy(
+                "No offer has run yet, so cashback spent is Rs 0 and estimated profit after offer is Rs 0. "
+                "Once customers visit, we multiply extra sales by your 30 percent assumed shop margin and subtract cashback spent. "
+                "Marked Estimate (Grade C) because UPI bills show payment totals, while shop margin is an assumption."
+            )
+        elif state == "BREAK_EVEN":
+            plain = assert_valid_merchant_copy(
+                "Your offer is right at zero net gain before fee: extra shop margin exactly matches cashback spent. "
+                "Marked Estimate (Grade C) because your 30 percent shop margin is an assumed percentage."
+            )
+        else:
+            plain = assert_valid_merchant_copy(
+                f"Estimated profit after offer is Rs {pre:.0f} before fee (Rs {post:.2f} after 5 percent Paytm fee). "
+                "Formula: extra sales multiplied by 30 percent assumed shop margin minus cashback spent. "
+                "Marked Estimate (Grade C) because shop margin and fee are explicit assumptions, not observed on QR receipts."
+            )
+        return {
+            "item_id": "KPI-PROFIT",
+            "evidence_grade": "C",
+            "profit_state": state,
+            "merchant_plain": plain,
+            "technical_provenance": k["profit_formula"],
+        }
     conn = get_conn()
     cur = conn.cursor()
     row = cur.execute("SELECT * FROM campaigns WHERE campaign_id = ?", (item_id,)).fetchone()
@@ -425,14 +456,13 @@ def api_stt(payload: STTRequestPayload):
     lang_code = "hi-IN" if lang_norm.startswith("hi") else ("kn-IN" if lang_norm.startswith("kn") else "en-IN")
     provider = SarvamProvider()
     res = provider.transcribe(
-        audio_base64=payload.audio_base64,
+        audio_base64=payload.audio_base64 or "",
         lang_code=lang_code,
-        fallback_utterance=payload.fallback_utterance,
         strict=False,
     )
     return {
         "ok": True,
-        "transcript": res.transcript,
+        "transcript": res.transcript or payload.fallback_utterance,
         "lang_code": res.lang_code,
         "provider": res.provider,
         "mode": res.mode,

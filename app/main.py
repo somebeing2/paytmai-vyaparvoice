@@ -58,7 +58,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="PaytmAI VyaparVoice - Merchant Growth Autopilot",
-    version="1.3.1",
+    version="1.4.0",
     lifespan=lifespan,
 )
 

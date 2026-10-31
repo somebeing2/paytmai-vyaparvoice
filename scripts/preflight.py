@@ -40,6 +40,7 @@ HYGIENE_GLOBS = [
     "app/*.py",
     "app/providers/*.py",
     "app/static/*.html",
+    "app/static/*.js",
     "scripts/*.py",
     "deck/v3/*.py",
 ]

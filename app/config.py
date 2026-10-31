@@ -92,7 +92,9 @@ class Settings:
     cap_overrun_warn_threshold: float
     assumed_redemption_rates: Dict[str, float] = field(default_factory=dict)
 
-    # Keyless Sarvam AI settings
+    # Keyless Sarvam AI & provider switches (auto-detected when API keys are present)
+    stt_tts_provider: str = "auto"
+    llm_provider: str = "auto"
     sarvam_enabled: bool = False
     sarvam_live_calls_enabled: bool = False
     sarvam_api_key: str = ""
@@ -186,6 +188,21 @@ def load_settings(force_reload: bool = False) -> Settings:
     cache_dir = Path(_env_str("SARVAM_CACHE_DIR", str(REPO_ROOT / cache_rel)))
     sess_dir = Path(_env_str("SESSION_STORAGE_DIR", str(REPO_ROOT / sess_rel)))
 
+    sarvam_key_val = os.environ.get("SARVAM_API_KEY", "").strip()
+    groq_key_val = os.environ.get("GROQ_API_KEY", "").strip()
+    stt_tts_prov = _env_str("STT_TTS_PROVIDER", "auto").lower()
+    llm_prov = _env_str("LLM_PROVIDER", "auto").lower()
+
+    sarvam_switch_on = stt_tts_prov in ("auto", "sarvam") and bool(sarvam_key_val)
+    raw_sarvam_en = os.environ.get("SARVAM_ENABLED")
+    raw_sarvam_live = os.environ.get("SARVAM_LIVE_CALLS_ENABLED")
+    sarvam_en_val = _parse_bool(raw_sarvam_en, sarvam_switch_on) and stt_tts_prov not in ("webspeech", "browser", "disabled", "off")
+    sarvam_live_val = _parse_bool(raw_sarvam_live, sarvam_switch_on) and stt_tts_prov not in ("webspeech", "browser", "disabled", "off")
+
+    groq_switch_on = llm_prov in ("auto", "groq") and bool(groq_key_val)
+    raw_groq_en = os.environ.get("GROQ_ENABLED")
+    groq_en_val = _parse_bool(raw_groq_en, groq_switch_on or bool(groq_sec.get("enabled", False))) and llm_prov not in ("static", "disabled", "off", "sarvam")
+
     _CACHED_SETTINGS = Settings(
         app_name=str(app_sec.get("name", "PaytmAI VyaparVoice")),
         app_version=str(app_sec.get("version", "1.1.0")),
@@ -218,9 +235,11 @@ def load_settings(force_reload: bool = False) -> Settings:
         assumed_redemption_rates=dict(
             exp_sec.get("assumed_redemption_rates", {"CMP-WINBACK-01": 0.375, "CMP-DEADHOUR-02": 0.407, "default": 0.35})
         ),
-        sarvam_enabled=_parse_bool(os.environ.get("SARVAM_ENABLED"), False),
-        sarvam_live_calls_enabled=_parse_bool(os.environ.get("SARVAM_LIVE_CALLS_ENABLED"), False),
-        sarvam_api_key=os.environ.get("SARVAM_API_KEY", "").strip(),
+        stt_tts_provider=stt_tts_prov,
+        llm_provider=llm_prov,
+        sarvam_enabled=sarvam_en_val,
+        sarvam_live_calls_enabled=sarvam_live_val,
+        sarvam_api_key=sarvam_key_val,
         sarvam_base_url=_env_str("SARVAM_BASE_URL", str(s_cfg.get("base_url", "https://api.sarvam.ai"))).rstrip("/"),
         sarvam_timeout_seconds=float(s_cfg.get("timeout_seconds", 8.0)),
         sarvam_tts_endpoint=str(tts_sec.get("endpoint", "/text-to-speech")),
@@ -237,8 +256,8 @@ def load_settings(force_reload: bool = False) -> Settings:
         sarvam_total_cap_pct=float(cap_sec.get("total_max_share_pct", 30.0)),
         sarvam_ledger_path=ledger_path,
         sarvam_cache_dir=cache_dir,
-        groq_enabled=_parse_bool(os.environ.get("GROQ_ENABLED"), bool(groq_sec.get("enabled", False))),
-        groq_api_key=os.environ.get("GROQ_API_KEY", "").strip(),
+        groq_enabled=groq_en_val,
+        groq_api_key=groq_key_val,
         groq_base_url=_env_str(
             "GROQ_BASE_URL", str(groq_sec.get("base_url", "https://api.groq.com/openai/v1"))
         ).rstrip("/"),

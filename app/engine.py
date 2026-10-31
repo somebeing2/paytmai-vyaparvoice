@@ -37,6 +37,7 @@ STORE_INFO = {
     "owner_name": "Ramesh Rao",
     "locality": "100 Feet Rd, Indiranagar, Bengaluru",
     "device": "Paytm AI Soundbox 4G (v3.2)",
+    "default_language": "kn",
     "max_discount_pct": 22.0,
     "dataset_disclosure": "SYNTHETIC_SEED_20261025",
 }
